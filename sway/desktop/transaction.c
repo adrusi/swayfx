@@ -525,8 +525,10 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			}
 		}
 	} else if (layout == L_VTABBED) {
-		int vtab_width = config->vtab_width;
-		bool vtab_left = config->vtab_left;
+		struct sway_container *vtab_con = children->length > 0
+			? ((struct sway_container *)children->items[0])->current.parent : NULL;
+		int vtab_width = vtab_con ? vtab_con->vtab_width : config->vtab_width;
+		bool vtab_left = vtab_con ? vtab_con->vtab_left : config->vtab_left;
 
 		struct sway_container *first = children->length == 1 ?
 			((struct sway_container *)children->items[0]) : NULL;
@@ -638,7 +640,8 @@ static void _arrange_container(struct sway_container *con,
 			}
 			if (parent_layout == L_VTABBED) {
 				in_vtabbed = true;
-				vtab_left = config->vtab_left;
+				vtab_left = con->current.parent
+					? con->current.parent->vtab_left : config->vtab_left;
 			}
 		}
 

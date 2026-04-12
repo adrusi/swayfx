@@ -662,21 +662,24 @@ static void get_deco_rect(struct sway_container *c, struct wlr_box *deco_rect) {
 			deco_rect->y += deco_rect->height * container_sibling_index(c);
 		} else if (parent_layout == L_VTABBED) {
 			// Sidebar entry: width is vtab_width, height is equal share of container height
+			struct sway_container *vtab_con = c->pending.parent;
+			int vtab_width = vtab_con ? vtab_con->vtab_width : config->vtab_width;
+			bool vtab_left = vtab_con ? vtab_con->vtab_left : config->vtab_left;
 			int n = siblings->length;
-			int parent_height = c->pending.parent
-				? (int)c->pending.parent->pending.height
+			int parent_height = vtab_con
+				? (int)vtab_con->pending.height
 				: (int)c->pending.workspace->height;
 			int idx = container_sibling_index(c);
 			int y_start = (int)((double)parent_height * idx / n);
 			int y_end = (int)((double)parent_height * (idx + 1) / n);
-			deco_rect->width = config->vtab_width;
+			deco_rect->width = vtab_width;
 			deco_rect->height = y_end - y_start;
-			if (config->vtab_left) {
+			if (vtab_left) {
 				deco_rect->x = 0;
 			} else {
-				deco_rect->x = c->pending.parent
-					? (int)c->pending.parent->pending.width - config->vtab_width
-					: (int)c->pending.workspace->width - config->vtab_width;
+				deco_rect->x = vtab_con
+					? (int)vtab_con->pending.width - vtab_width
+					: (int)c->pending.workspace->width - vtab_width;
 			}
 			deco_rect->y = y_start;
 		}

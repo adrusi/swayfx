@@ -5,6 +5,12 @@
 #include "sway/desktop/transaction.h"
 #include "sway/output.h"
 #include "sway/tree/arrange.h"
+#include "sway/tree/container.h"
+#include "sway/tree/root.h"
+
+static void reset_vtab_left_iter(struct sway_container *con, void *data) {
+	con->vtab_left = config->vtab_left;
+}
 
 struct cmd_results *cmd_vtab_position(int argc, char **argv) {
 	struct cmd_results *error = NULL;
@@ -12,18 +18,36 @@ struct cmd_results *cmd_vtab_position(int argc, char **argv) {
 		return error;
 	}
 
+	bool new_left;
 	if (strcasecmp(argv[0], "left") == 0) {
-		config->vtab_left = true;
+		new_left = true;
 	} else if (strcasecmp(argv[0], "right") == 0) {
-		config->vtab_left = false;
+		new_left = false;
 	} else {
 		return cmd_results_new(CMD_FAILURE,
 			"Expected 'vtab_position left|right'");
 	}
 
-	for (int i = 0; i < root->outputs->length; ++i) {
-		struct sway_output *output = root->outputs->items[i];
-		arrange_workspace(output_get_active_workspace(output));
+	struct sway_container *ctx = config->handler_context.container;
+	if (ctx == NULL) {
+		// Config context: update global default and propagate to all containers
+		config->vtab_left = new_left;
+		root_for_each_container(reset_vtab_left_iter, NULL);
+		arrange_root();
+	} else {
+		// Runtime: find the nearest vtabbed ancestor and set on it
+		struct sway_container *vtab_con = ctx;
+		while (vtab_con && vtab_con->pending.layout != L_VTABBED) {
+			vtab_con = vtab_con->pending.parent;
+		}
+		if (vtab_con == NULL) {
+			// No vtabbed ancestor — set on context container so it takes
+			// effect if/when the layout is switched to vtabbed
+			ctx->vtab_left = new_left;
+		} else {
+			vtab_con->vtab_left = new_left;
+			arrange_container(vtab_con);
+		}
 	}
 	transaction_commit_dirty();
 

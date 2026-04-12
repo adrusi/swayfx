@@ -120,6 +120,8 @@ struct sway_container *container_create(struct sway_view *view) {
 	c->blur_enabled = config->blur_enabled;
 	c->shadow_enabled = config->shadow_enabled;
 	c->dim = config->default_dim_inactive;
+	c->vtab_width = config->vtab_width;
+	c->vtab_left = config->vtab_left;
 
 	c->animation_state.animation = init_animation(c);
 	c->animation_state.from_alpha = 0.0f;
@@ -351,16 +353,18 @@ static struct fx_corner_radii get_titlebar_corners(struct sway_container *con) {
 		// The inner side of the sidebar is always flat (adjacent to window content).
 		bool is_first = siblings->items[0] == con;
 		bool is_last = siblings->items[siblings->length - 1] == con;
+		bool vtab_left = con->current.parent ?
+			con->current.parent->vtab_left : config->vtab_left;
 		corners = corner_radii_none();
 		if (is_first) {
-			if (config->vtab_left) {
+			if (vtab_left) {
 				corners.top_left = radius;
 			} else {
 				corners.top_right = radius;
 			}
 		}
 		if (is_last) {
-			if (config->vtab_left) {
+			if (vtab_left) {
 				corners.bottom_left = radius;
 			} else {
 				corners.bottom_right = radius;

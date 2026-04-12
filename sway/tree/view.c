@@ -421,11 +421,14 @@ void view_autoconfigure(struct sway_view *view) {
 				con->pending.border_top = false;
 			} else if (layout == L_VTABBED) {
 				vtab_sidebar = true;
-				if (config->vtab_left) {
-					x_offset = config->vtab_width;
+				struct sway_container *vtab_con = con->pending.parent;
+				int vtab_width = vtab_con ? vtab_con->vtab_width : config->vtab_width;
+				bool vtab_left = vtab_con ? vtab_con->vtab_left : config->vtab_left;
+				if (vtab_left) {
+					x_offset = vtab_width;
 					con->pending.border_left = false;
 				} else {
-					width_reduce = config->vtab_width;
+					width_reduce = vtab_width;
 					con->pending.border_right = false;
 				}
 				con->pending.border_top = false;

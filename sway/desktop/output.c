@@ -259,7 +259,9 @@ static struct fx_corner_radii content_corner_radii(struct sway_container *con,
 		}
 		if (parent_layout == L_VTABBED) {
 			int r = corner_radius;
-			return config->vtab_left
+			bool vtab_left = con->current.parent ?
+				con->current.parent->vtab_left : config->vtab_left;
+			return vtab_left
 				? (struct fx_corner_radii){0, r, r, 0}
 				: (struct fx_corner_radii){r, 0, 0, r};
 		}

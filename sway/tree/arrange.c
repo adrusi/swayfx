@@ -215,8 +215,12 @@ static void apply_vtabbed_layout(list_t *children, struct wlr_box *parent) {
 	if (!children->length) {
 		return;
 	}
-	int vtab_width = config->vtab_width;
-	bool vtab_left = config->vtab_left;
+	// Read vtab properties from the vtabbed parent container if available,
+	// falling back to global config for workspace-level vtabbed layouts.
+	struct sway_container *vtab_con =
+		((struct sway_container *)children->items[0])->pending.parent;
+	int vtab_width = vtab_con ? vtab_con->vtab_width : config->vtab_width;
+	bool vtab_left = vtab_con ? vtab_con->vtab_left : config->vtab_left;
 	// Non-view children (split containers within vtabbed) are offset to
 	// exclude the sidebar so their sub-children arrange within the content area.
 	for (int i = 0; i < children->length; ++i) {

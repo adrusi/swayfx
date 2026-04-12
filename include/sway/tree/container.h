@@ -157,6 +157,10 @@ struct sway_container {
 	bool shadow_enabled;
 	float dim;
 
+	// vtabbed layout properties (only meaningful when layout == L_VTABBED)
+	int vtab_width;   // sidebar width in pixels
+	bool vtab_left;   // true = left sidebar, false = right
+
 	struct {
 		struct animation animation;
 		float from_alpha;
