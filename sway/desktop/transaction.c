@@ -57,7 +57,8 @@ static struct sway_transaction *transaction_create(void) {
 static bool con_has_title_bar(struct sway_container *con) {
 	return !(con->current.parent &&
 		(con->current.parent->current.layout == L_STACKED ||
-		 con->current.parent->current.layout == L_TABBED));
+		 con->current.parent->current.layout == L_TABBED ||
+		 con->current.parent->current.layout == L_VTABBED));
 }
 
 static void _arrange_container(struct sway_container *con,
@@ -382,6 +383,7 @@ static void arrange_title_bar(struct sway_container *con,
 	wlr_scene_node_set_position(&con->title_bar.tree->node, x, y);
 
 	con->title_width = width;
+	con->title_height = height;
 	container_arrange_title_bar(con);
 }
 
@@ -403,9 +405,9 @@ static void arrange_container(struct sway_container *con,
 		int width, int height, int x, int y, bool title_bar, int gaps);
 
 static void arrange_inactive_child(struct sway_container *child,
-		int width, int height, int y_pos) {
+		int width, int height, int x_pos, int y_pos) {
 	finish_animation(&child->animation_state.animation);
-	wlr_scene_node_set_position(&child->scene_tree->node, 0, y_pos);
+	wlr_scene_node_set_position(&child->scene_tree->node, x_pos, y_pos);
 	child->animation_state.current_width = width;
 	child->animation_state.current_height = height;
 	if (child->view) {
@@ -413,7 +415,7 @@ static void arrange_inactive_child(struct sway_container *child,
 			&child->animation_state.current_global_x,
 			&child->animation_state.current_global_y);
 	}
-	child->animation_state.from_x = 0;
+	child->animation_state.from_x = x_pos;
 	child->animation_state.from_y = y_pos;
 	disable_container(child);
 }
@@ -450,7 +452,7 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			if (activated && width > 0 && net_height > 0) {
 				arrange_container(child, width, net_height, 0, title_bar_height, title_bar_height == 0, 0);
 			} else {
-				arrange_inactive_child(child, width, net_height, title_bar_height);
+				arrange_inactive_child(child, width, net_height, 0, title_bar_height);
 			}
 
 			title_offset = next_title_offset;
@@ -481,7 +483,7 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			if (activated && width > 0 && net_height > 0) {
 				arrange_container(child, width, net_height, 0, title_height, title_bar_height == 0, 0);
 			} else {
-				arrange_inactive_child(child, width, net_height, title_height);
+				arrange_inactive_child(child, width, net_height, 0, title_height);
 			}
 
 			y += title_bar_height;
@@ -520,6 +522,50 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 				off += cwidth + gaps;
 			} else {
 				disable_container(child);
+			}
+		}
+	} else if (layout == L_VTABBED) {
+		int vtab_width = config->vtab_width;
+		bool vtab_left = config->vtab_left;
+
+		struct sway_container *first = children->length == 1 ?
+			((struct sway_container *)children->items[0]) : NULL;
+		if (config->hide_lone_tab && first && first->view &&
+				first->current.border != B_NORMAL) {
+			vtab_width = 0;
+		}
+
+		int net_width = width - vtab_width;
+		int n = children->length;
+		// title_x: position of the sidebar relative to each child's scene_tree.
+		// Left sidebar: child scene_tree at x=vtab_width, title is at x=-vtab_width
+		// Right sidebar: child scene_tree at x=0, title is at x=net_width
+		int title_x = vtab_left ? -vtab_width : net_width;
+		int content_x_offset = vtab_left ? vtab_width : 0;
+
+		for (int i = 0; i < n; i++) {
+			struct sway_container *child = children->items[i];
+			bool activated = child == active;
+			// Divide sidebar height equally among tab entries
+			int y_start = (int)((double)height * i / n);
+			int y_end = (int)((double)height * (i + 1) / n);
+			int slot_height = y_end - y_start;
+
+			// Pass height=0 to hide title bar when vtab_width is 0 (hide_lone_tab)
+			arrange_title_bar(child, title_x, y_start, vtab_width, vtab_width > 0 ? slot_height : 0);
+			wlr_scene_node_set_enabled(&child->border.tree->node, activated);
+			wlr_scene_node_set_enabled(&child->blur->node, activated);
+			wlr_scene_node_set_enabled(&child->shadow->node, false);
+			wlr_scene_node_set_enabled(&child->scene_tree->node, true);
+			wlr_scene_node_reparent(&child->scene_tree->node, content);
+
+			int effective_width = vtab_width > 0 ? net_width : width;
+			if (activated && effective_width > 0 && height > 0) {
+				arrange_container(child, effective_width, height,
+					content_x_offset, 0, vtab_width == 0, 0);
+			} else {
+				arrange_inactive_child(child, effective_width, height,
+					content_x_offset, 0);
 			}
 		}
 	} else {
@@ -580,11 +626,29 @@ static void _arrange_container(struct sway_container *con,
 		int border_top = container_titlebar_height();
 		int border_width = con->current.border_thickness;
 
+		// Detect vtabbed parent for asymmetric corner rounding
+		bool in_vtabbed = false;
+		bool vtab_left = true;
+		{
+			enum sway_container_layout parent_layout = L_NONE;
+			if (con->current.parent) {
+				parent_layout = con->current.parent->current.layout;
+			} else if (con->current.workspace) {
+				parent_layout = con->current.workspace->current.layout;
+			}
+			if (parent_layout == L_VTABBED) {
+				in_vtabbed = true;
+				vtab_left = config->vtab_left;
+			}
+		}
+
 		if (title_bar && con->current.border != B_NORMAL) {
 			wlr_scene_node_set_enabled(&con->title_bar.tree->node, false);
 			wlr_scene_node_set_enabled(&con->border.top->node, true);
 		} else {
-			wlr_scene_node_set_enabled(&con->border.top->node, false);
+			// For vtabbed, enable border.top to render the outer top corner arc
+			bool vtab_top_corner = in_vtabbed && has_corner_radius && corner_radius > 0;
+			wlr_scene_node_set_enabled(&con->border.top->node, vtab_top_corner);
 		}
 
 		if (con->current.border == B_NORMAL) {
@@ -633,17 +697,51 @@ static void _arrange_container(struct sway_container *con,
 					.height = border_top + corner_radius
 				}
 			});
+		} else if (in_vtabbed && has_corner_radius && corner_radius > 0) {
+			// Render just the outer top corner arc for vtabbed containers.
+			// border.top overlays content_tree so we don't need to push content down.
+			// For left sidebar: outer top = top-right; for right sidebar: top-left.
+			int bw = vtab_left ? border_right : border_left;
+			struct fx_corner_radii cr_outer = vtab_left
+				? (struct fx_corner_radii){0, corner_radius + bw, 0, 0}
+				: (struct fx_corner_radii){corner_radius + bw, 0, 0, 0};
+			struct fx_corner_radii cr_clip = vtab_left
+				? (struct fx_corner_radii){0, corner_radius, 0, 0}
+				: (struct fx_corner_radii){corner_radius, 0, 0, 0};
+			wlr_scene_rect_set_size(con->border.top, width, corner_radius);
+			wlr_scene_rect_set_corner_radii(con->border.top, cr_outer);
+			wlr_scene_rect_set_clipped_region(con->border.top, (struct clipped_region){
+				.corners = cr_clip,
+				.area = vtab_left
+					? (struct wlr_box){0, 0, width - bw, corner_radius}
+					: (struct wlr_box){bw, 0, width - bw, corner_radius}
+			});
 		} else {
 			wlr_scene_rect_set_size(con->border.top, 0, 0);
 		}
 
 		if (border_bottom) {
+			// For vtabbed, only round the outer bottom corner (the one away from
+			// the sidebar). For left sidebar that's bottom-right; for right sidebar
+			// that's bottom-left.
+			struct fx_corner_radii bc_outer, bc_clip;
+			if (in_vtabbed && has_corner_radius) {
+				int r = corner_radius + border_width;
+				if (vtab_left) {
+					bc_outer = (struct fx_corner_radii){0, 0, r, 0};
+					bc_clip  = (struct fx_corner_radii){0, 0, corner_radius, 0};
+				} else {
+					bc_outer = (struct fx_corner_radii){0, 0, 0, r};
+					bc_clip  = (struct fx_corner_radii){0, 0, 0, corner_radius};
+				}
+			} else {
+				bc_outer = corner_radii_bottom(!has_corner_radius ? 0 : corner_radius + border_width);
+				bc_clip  = corner_radii_bottom(corner_radius);
+			}
 			wlr_scene_rect_set_size(con->border.bottom, width, border_bottom + corner_radius);
-			wlr_scene_rect_set_corner_radii(con->border.bottom, corner_radii_bottom(!has_corner_radius ? 0 :
-					corner_radius + border_width));
-
+			wlr_scene_rect_set_corner_radii(con->border.bottom, bc_outer);
 			wlr_scene_rect_set_clipped_region(con->border.bottom, (struct clipped_region) {
-				.corners = corner_radii_bottom(corner_radius),
+				.corners = bc_clip,
 				// shift up one px to fix https://github.com/WillPower3309/swayfx/issues/386
 				// TODO: proper fix
 				.area = {
@@ -688,11 +786,21 @@ static void _arrange_container(struct sway_container *con,
 		if (con->dim_rect) {
 			wlr_scene_node_set_position(&con->dim_rect->node, border_left, border_top);
 			wlr_scene_rect_set_size(con->dim_rect, content_width, content_height);
-			bool has_titlebar = !title_bar || con->current.border == B_NORMAL;
-			wlr_scene_rect_set_corner_radii(
-				con->dim_rect,
-				has_titlebar ? corner_radii_bottom(con->corner_radius) : corner_radii_all(con->corner_radius)
-			);
+			struct fx_corner_radii dim_corners;
+			int r = has_corner_radius ? con->corner_radius : 0;
+			if (in_vtabbed && r > 0) {
+				// Only round the outer (non-sidebar) corners of the content area.
+				// Left sidebar → right corners are outer; right sidebar → left.
+				if (vtab_left) {
+					dim_corners = (struct fx_corner_radii){0, r, r, 0};
+				} else {
+					dim_corners = (struct fx_corner_radii){r, 0, 0, r};
+				}
+			} else {
+				bool has_titlebar = !title_bar || con->current.border == B_NORMAL;
+				dim_corners = has_titlebar ? corner_radii_bottom(r) : corner_radii_all(r);
+			}
+			wlr_scene_rect_set_corner_radii(con->dim_rect, dim_corners);
 		}
 
 		// make sure to reparent, it's possible that the client just came out of
@@ -719,7 +827,8 @@ static void _arrange_container(struct sway_container *con,
 
 		wlr_scene_node_set_enabled(&con->shadow->node,
 				container_has_shadow(con) &&
-				(con->current.layout == L_TABBED || con->current.layout == L_STACKED));
+				(con->current.layout == L_TABBED || con->current.layout == L_STACKED
+				|| con->current.layout == L_VTABBED));
 
 		arrange_children(con->current.layout, con->current.children,
 			con->current.focused_inactive_child, con->content_tree,
@@ -790,7 +899,7 @@ static int container_get_gaps(struct sway_container *con) {
 		} else {
 			layout = ws->current.layout;
 		}
-		if (layout == L_TABBED || layout == L_STACKED) {
+		if (layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED) {
 			return 0;
 		}
 		temp = temp->pending.parent;

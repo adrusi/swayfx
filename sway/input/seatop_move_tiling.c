@@ -126,7 +126,7 @@ static bool split_titlebar(struct sway_node *node, struct sway_container *avoid,
 	int n_children, avoid_index;
 	enum sway_container_layout layout =
 		parent ? node_get_layout(parent) : L_NONE;
-	if (layout == L_TABBED || layout == L_STACKED) {
+	if (layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED) {
 		node_get_box(parent, &box);
 		n_children = node_get_children(parent)->length;
 		avoid_index = list_find(node_get_children(parent), avoid);
@@ -373,7 +373,7 @@ static void finalize_move(struct sway_seat *seat) {
 	} else if (e->split_target) {
 		struct sway_container *target = target_node->sway_container;
 		enum sway_container_layout layout = container_parent_layout(target);
-		if (layout != L_TABBED && layout != L_STACKED) {
+		if (layout != L_TABBED && layout != L_STACKED && layout != L_VTABBED) {
 			container_split(target, L_TABBED);
 		}
 		container_add_sibling(target, con, e->insert_after_target);

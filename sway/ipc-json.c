@@ -58,6 +58,8 @@ static const char *ipc_json_layout_description(enum sway_container_layout l) {
 		return "tabbed";
 	case L_STACKED:
 		return "stacked";
+	case L_VTABBED:
+		return "vtabbed";
 	case L_NONE:
 		break;
 	}
@@ -625,7 +627,8 @@ static void ipc_json_describe_workspace(struct sway_workspace *workspace,
 static void get_deco_rect(struct sway_container *c, struct wlr_box *deco_rect) {
 	enum sway_container_layout parent_layout = container_parent_layout(c);
 	list_t *siblings = container_get_siblings(c);
-	bool tab_or_stack = (parent_layout == L_TABBED || parent_layout == L_STACKED)
+	bool tab_or_stack = (parent_layout == L_TABBED || parent_layout == L_STACKED
+			|| parent_layout == L_VTABBED)
 		&& ((siblings && siblings->length > 1) || !config->hide_lone_tab);
 	if (((!tab_or_stack || container_is_floating(c)) &&
 				c->current.border != B_NORMAL) ||
@@ -657,6 +660,25 @@ static void get_deco_rect(struct sway_container *c, struct wlr_box *deco_rect) {
 				deco_rect->y -= deco_rect->height * siblings;
 			}
 			deco_rect->y += deco_rect->height * container_sibling_index(c);
+		} else if (parent_layout == L_VTABBED) {
+			// Sidebar entry: width is vtab_width, height is equal share of container height
+			int n = siblings->length;
+			int parent_height = c->pending.parent
+				? (int)c->pending.parent->pending.height
+				: (int)c->pending.workspace->height;
+			int idx = container_sibling_index(c);
+			int y_start = (int)((double)parent_height * idx / n);
+			int y_end = (int)((double)parent_height * (idx + 1) / n);
+			deco_rect->width = config->vtab_width;
+			deco_rect->height = y_end - y_start;
+			if (config->vtab_left) {
+				deco_rect->x = 0;
+			} else {
+				deco_rect->x = c->pending.parent
+					? (int)c->pending.parent->pending.width - config->vtab_width
+					: (int)c->pending.workspace->width - config->vtab_width;
+			}
+			deco_rect->y = y_start;
 		}
 	}
 }

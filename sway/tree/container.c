@@ -346,6 +346,26 @@ static struct fx_corner_radii get_titlebar_corners(struct sway_container *con) {
 		}
 	} else if (layout == L_STACKED && siblings->items[0] != con) {
 		return corner_radii_none();
+	} else if (layout == L_VTABBED) {
+		// Only the single outer corner of the first/last entry is rounded.
+		// The inner side of the sidebar is always flat (adjacent to window content).
+		bool is_first = siblings->items[0] == con;
+		bool is_last = siblings->items[siblings->length - 1] == con;
+		corners = corner_radii_none();
+		if (is_first) {
+			if (config->vtab_left) {
+				corners.top_left = radius;
+			} else {
+				corners.top_right = radius;
+			}
+		}
+		if (is_last) {
+			if (config->vtab_left) {
+				corners.bottom_left = radius;
+			} else {
+				corners.bottom_right = radius;
+			}
+		}
 	}
 
 	return corners;
@@ -378,7 +398,7 @@ void container_arrange_title_bar(struct sway_container *con) {
 	enum alignment title_align = config->title_align;
 	int marks_buffer_width = 0;
 	int width = con->title_width;
-	int height = container_titlebar_height();
+	int height = con->title_height > 0 ? con->title_height : (int)container_titlebar_height();
 
 	struct wlr_box left_cut = {0};
 	struct wlr_box right_cut = {0};
@@ -834,6 +854,10 @@ size_t container_build_representation(enum sway_container_layout layout,
 		break;
 	case L_STACKED:
 		lenient_strcat(buffer, "S[");
+		break;
+	case L_VTABBED:
+		lenient_strcat(buffer, "VT[");
+		len++;
 		break;
 	case L_NONE:
 		lenient_strcat(buffer, "D[");
@@ -1786,8 +1810,9 @@ static bool is_parallel(enum sway_container_layout first,
 	case L_HORIZ:
 		return second == L_TABBED || second == L_HORIZ;
 	case L_STACKED:
+	case L_VTABBED:
 	case L_VERT:
-		return second == L_STACKED || second == L_VERT;
+		return second == L_STACKED || second == L_VTABBED || second == L_VERT;
 	default:
 		return false;
 	}
@@ -1897,13 +1922,14 @@ static void swap_focus(struct sway_container *con1,
 		struct sway_workspace *ws2 = con2->pending.workspace;
 		enum sway_container_layout layout1 = container_parent_layout(con1);
 		enum sway_container_layout layout2 = container_parent_layout(con2);
-		if (focus == con1 && (layout2 == L_TABBED || layout2 == L_STACKED)) {
+		if (focus == con1 && (layout2 == L_TABBED || layout2 == L_STACKED
+				|| layout2 == L_VTABBED)) {
 			if (workspace_is_visible(ws2)) {
 				seat_set_focus(seat, &con2->node);
 			}
 			seat_set_focus_container(seat, ws1 != ws2 ? con2 : con1);
 		} else if (focus == con2 && (layout1 == L_TABBED
-					|| layout1 == L_STACKED)) {
+					|| layout1 == L_STACKED || layout1 == L_VTABBED)) {
 			if (workspace_is_visible(ws1)) {
 				seat_set_focus(seat, &con1->node);
 			}

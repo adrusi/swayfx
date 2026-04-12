@@ -18,6 +18,7 @@ enum sway_container_layout {
 	L_VERT,
 	L_STACKED,
 	L_TABBED,
+	L_VTABBED,
 };
 
 enum sway_container_border {
@@ -108,6 +109,10 @@ struct sway_container {
 	int title_width;
 
 	char *title_format;
+
+	// Height allocated for the sidebar title bar entry (vtabbed layout).
+	// 0 means use the default container_titlebar_height().
+	int title_height;
 
 	enum sway_container_layout prev_split_layout;
 

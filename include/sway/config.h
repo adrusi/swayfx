@@ -596,6 +596,10 @@ struct sway_config {
 	enum edge_border_smart_types hide_edge_borders_smart;
 	bool hide_lone_tab;
 
+	// vtabbed layout settings
+	int vtab_width;         // sidebar width in pixels (default 220)
+	bool vtab_left;         // true = sidebar on left, false = sidebar on right
+
 	// border colors
 	struct {
 		struct border_colors focused;

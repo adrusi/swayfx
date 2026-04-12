@@ -401,7 +401,7 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
 		// change the active tab when the user probably just wanted to resize.
 		struct sway_container *cont_to_focus = cont;
 		enum sway_container_layout layout = container_parent_layout(cont);
-		if (layout == L_TABBED || layout == L_STACKED) {
+		if (layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED) {
 			cont_to_focus = seat_get_focus_inactive_view(seat, &cont->pending.parent->node);
 		}
 
@@ -754,7 +754,7 @@ static void handle_pointer_axis(struct sway_seat *seat,
 	if (!handled && (on_titlebar || on_titlebar_border)) {
 		struct sway_node *new_focus;
 		enum sway_container_layout layout = container_parent_layout(cont);
-		if (layout == L_TABBED || layout == L_STACKED) {
+		if (layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED) {
 			struct sway_node *tabcontainer = node_get_parent(node);
 			struct sway_node *active =
 				seat_get_active_tiling_child(seat, tabcontainer);

@@ -315,6 +315,9 @@ static void config_defaults(struct sway_config *config) {
 	config->hide_edge_borders_smart = ESMART_OFF;
 	config->hide_lone_tab = false;
 
+	config->vtab_width = 220;
+	config->vtab_left = true;
+
 	config->has_focused_tab_title = false;
 
 	// border colors

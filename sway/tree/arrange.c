@@ -58,11 +58,11 @@ static void apply_horiz_layout(list_t *children, struct wlr_box *parent) {
 	if (ws) {
 		inner_gap = ws->gaps_inner;
 	}
-	// Descendants of tabbed/stacked containers don't have gaps
+	// Descendants of tabbed/stacked/vtabbed containers don't have gaps
 	struct sway_container *temp = child;
 	while (temp) {
 		enum sway_container_layout layout = container_parent_layout(temp);
-		if (layout == L_TABBED || layout == L_STACKED) {
+		if (layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED) {
 			inner_gap = 0;
 		}
 		temp = temp->pending.parent;
@@ -143,11 +143,11 @@ static void apply_vert_layout(list_t *children, struct wlr_box *parent) {
 	if (ws) {
 		inner_gap = ws->gaps_inner;
 	}
-	// Descendants of tabbed/stacked containers don't have gaps
+	// Descendants of tabbed/stacked/vtabbed containers don't have gaps
 	struct sway_container *temp = child;
 	while (temp) {
 		enum sway_container_layout layout = container_parent_layout(temp);
-		if (layout == L_TABBED || layout == L_STACKED) {
+		if (layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED) {
 			inner_gap = 0;
 		}
 		temp = temp->pending.parent;
@@ -211,6 +211,25 @@ static void apply_stacked_layout(list_t *children, struct wlr_box *parent) {
 	}
 }
 
+static void apply_vtabbed_layout(list_t *children, struct wlr_box *parent) {
+	if (!children->length) {
+		return;
+	}
+	int vtab_width = config->vtab_width;
+	bool vtab_left = config->vtab_left;
+	// Non-view children (split containers within vtabbed) are offset to
+	// exclude the sidebar so their sub-children arrange within the content area.
+	for (int i = 0; i < children->length; ++i) {
+		struct sway_container *child = children->items[i];
+		int x_offset = (!child->view && vtab_left) ? vtab_width : 0;
+		int width_reduce = child->view ? 0 : vtab_width;
+		child->pending.x = parent->x + x_offset;
+		child->pending.y = parent->y;
+		child->pending.width = parent->width - width_reduce;
+		child->pending.height = parent->height;
+	}
+}
+
 static void arrange_floating(list_t *floating) {
 	for (int i = 0; i < floating->length; ++i) {
 		struct sway_container *floater = floating->items[i];
@@ -233,6 +252,9 @@ static void arrange_children(list_t *children,
 		break;
 	case L_STACKED:
 		apply_stacked_layout(children, parent);
+		break;
+	case L_VTABBED:
+		apply_vtabbed_layout(children, parent);
 		break;
 	case L_NONE:
 		apply_horiz_layout(children, parent);

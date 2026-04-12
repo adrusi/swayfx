@@ -17,14 +17,16 @@ static enum sway_container_layout parse_layout_string(char *s) {
 		return L_TABBED;
 	} else if (strcasecmp(s, "stacking") == 0) {
 		return L_STACKED;
+	} else if (strcasecmp(s, "vtabbed") == 0) {
+		return L_VTABBED;
 	}
 	return L_NONE;
 }
 
 static const char expected_syntax[] =
-	"Expected 'layout default|tabbed|stacking|splitv|splith' or "
+	"Expected 'layout default|tabbed|stacking|vtabbed|splitv|splith' or "
 	"'layout toggle [split|all]' or "
-	"'layout toggle [split|tabbed|stacking|splitv|splith] [split|tabbed|stacking|splitv|splith]...'";
+	"'layout toggle [split|tabbed|stacking|vtabbed|splitv|splith] [split|tabbed|stacking|vtabbed|splitv|splith]...'";
 
 static enum sway_container_layout toggle_split_layout(
 		enum sway_container_layout layout,
@@ -62,7 +64,8 @@ static enum sway_container_layout get_layout_toggle(int argc, char **argv,
 		if (strcasecmp(argv[1], "all") == 0) {
 			return layout == L_HORIZ ? L_VERT :
 				layout == L_VERT ? L_STACKED :
-				layout == L_STACKED ? L_TABBED : L_HORIZ;
+				layout == L_STACKED ? L_TABBED :
+				layout == L_TABBED ? L_VTABBED : L_HORIZ;
 		}
 		return L_NONE;
 	}
@@ -170,7 +173,8 @@ struct cmd_results *cmd_layout(int argc, char **argv) {
 	}
 	if (new_layout != old_layout) {
 		if (container) {
-			if (old_layout != L_TABBED && old_layout != L_STACKED) {
+			if (old_layout != L_TABBED && old_layout != L_STACKED
+					&& old_layout != L_VTABBED) {
 				container->prev_split_layout = old_layout;
 			}
 			container->pending.layout = new_layout;
@@ -182,7 +186,8 @@ struct cmd_results *cmd_layout(int argc, char **argv) {
 			container->pending.layout = new_layout;
 			container_update_representation(container);
 		} else {
-			if (old_layout != L_TABBED && old_layout != L_STACKED) {
+			if (old_layout != L_TABBED && old_layout != L_STACKED
+					&& old_layout != L_VTABBED) {
 				workspace->prev_split_layout = old_layout;
 			}
 			workspace->layout = new_layout;

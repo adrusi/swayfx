@@ -311,7 +311,7 @@ bool view_ancestor_is_only_visible(struct sway_view *view) {
 	struct sway_container *con = view->container;
 	while (con) {
 		enum sway_container_layout layout = container_parent_layout(con);
-		if (layout != L_TABBED && layout != L_STACKED) {
+		if (layout != L_TABBED && layout != L_STACKED && layout != L_VTABBED) {
 			list_t *siblings = container_get_siblings(con);
 			if (siblings && siblings->length > 1) {
 				only_visible = false;
@@ -328,7 +328,7 @@ static bool view_is_only_visible(struct sway_view *view) {
 	struct sway_container *con = view->container;
 	while (con) {
 		enum sway_container_layout layout = container_parent_layout(con);
-		if (layout != L_TABBED && layout != L_STACKED) {
+		if (layout != L_TABBED && layout != L_STACKED && layout != L_VTABBED) {
 			list_t *siblings = container_get_siblings(con);
 			if (siblings && siblings->length > 1) {
 				return false;
@@ -373,6 +373,9 @@ void view_autoconfigure(struct sway_view *view) {
 	con->pending.border_top = con->pending.border_bottom = true;
 	con->pending.border_left = con->pending.border_right = true;
 	double y_offset = 0;
+	double x_offset = 0;
+	double width_reduce = 0;
+	bool vtab_sidebar = false;
 
 	if (!container_is_floating_or_child(con) && ws) {
 		if (config->hide_edge_borders == E_BOTH
@@ -416,6 +419,16 @@ void view_autoconfigure(struct sway_view *view) {
 			} else if (layout == L_STACKED) {
 				y_offset = container_titlebar_height() * siblings->length;
 				con->pending.border_top = false;
+			} else if (layout == L_VTABBED) {
+				vtab_sidebar = true;
+				if (config->vtab_left) {
+					x_offset = config->vtab_width;
+					con->pending.border_left = false;
+				} else {
+					width_reduce = config->vtab_width;
+					con->pending.border_right = false;
+				}
+				con->pending.border_top = false;
 			}
 		}
 	}
@@ -425,15 +438,15 @@ void view_autoconfigure(struct sway_view *view) {
 	default:
 	case B_CSD:
 	case B_NONE:
-		x = con->pending.x;
+		x = con->pending.x + x_offset;
 		y = con->pending.y + y_offset;
-		width = con->pending.width;
+		width = con->pending.width - x_offset - width_reduce;
 		height = con->pending.height - y_offset;
 		break;
 	case B_PIXEL:
-		x = con->pending.x + con->pending.border_thickness * con->pending.border_left;
+		x = con->pending.x + x_offset + con->pending.border_thickness * con->pending.border_left;
 		y = con->pending.y + con->pending.border_thickness * con->pending.border_top + y_offset;
-		width = con->pending.width
+		width = con->pending.width - x_offset - width_reduce
 			- con->pending.border_thickness * con->pending.border_left
 			- con->pending.border_thickness * con->pending.border_right;
 		height = con->pending.height - y_offset
@@ -442,13 +455,18 @@ void view_autoconfigure(struct sway_view *view) {
 		break;
 	case B_NORMAL:
 		// Height is: 1px border + 3px pad + title height + 3px pad + 1px border
-		x = con->pending.x + con->pending.border_thickness * con->pending.border_left;
-		width = con->pending.width
+		x = con->pending.x + x_offset + con->pending.border_thickness * con->pending.border_left;
+		width = con->pending.width - x_offset - width_reduce
 			- con->pending.border_thickness * con->pending.border_left
 			- con->pending.border_thickness * con->pending.border_right;
 		if (y_offset) {
 			y = con->pending.y + y_offset;
 			height = con->pending.height - y_offset
+				- con->pending.border_thickness * con->pending.border_bottom;
+		} else if (vtab_sidebar) {
+			// vtabbed: title bar is in sidebar, no space reserved at top
+			y = con->pending.y;
+			height = con->pending.height
 				- con->pending.border_thickness * con->pending.border_bottom;
 		} else {
 			y = con->pending.y + container_titlebar_height();
@@ -1216,7 +1234,7 @@ bool view_is_visible(struct sway_view *view) {
 	struct sway_container *con = view->container;
 	while (con) {
 		enum sway_container_layout layout = container_parent_layout(con);
-		if ((layout == L_TABBED || layout == L_STACKED)
+		if ((layout == L_TABBED || layout == L_STACKED || layout == L_VTABBED)
 				&& !container_is_floating(con)) {
 			struct sway_node *parent = con->pending.parent ?
 				&con->pending.parent->node : &con->pending.workspace->node;

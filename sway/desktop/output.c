@@ -244,6 +244,30 @@ static bool could_container_overlap(struct sway_container *con) {
 		(con->current.workspace && con->current.workspace->animation_state.animation.initialized);
 }
 
+/**
+ * Corner radii for a container's content (buffer or blur). Views in a vtabbed
+ * container only round the outer corners, away from the tab sidebar.
+ */
+static struct fx_corner_radii content_corner_radii(struct sway_container *con,
+		int corner_radius, bool has_titlebar) {
+	if (con->view && corner_radius > 0) {
+		enum sway_container_layout parent_layout = L_NONE;
+		if (con->current.parent) {
+			parent_layout = con->current.parent->current.layout;
+		} else if (con->current.workspace) {
+			parent_layout = con->current.workspace->current.layout;
+		}
+		if (parent_layout == L_VTABBED) {
+			int r = corner_radius;
+			return config->vtab_left
+				? (struct fx_corner_radii){0, r, r, 0}
+				: (struct fx_corner_radii){r, 0, 0, r};
+		}
+	}
+	return has_titlebar ? corner_radii_bottom(corner_radius) :
+		corner_radii_all(corner_radius);
+}
+
 void output_configure_scene(struct sway_output *output, struct wlr_scene_node *node,
 		bool has_titlebar, struct sway_container *closest_con) {
 	if (!node->enabled) {
@@ -320,8 +344,9 @@ void output_configure_scene(struct sway_output *output, struct wlr_scene_node *n
 		}
 
 		bool is_subsurface = surface && surface->surface && wlr_subsurface_try_from_wlr_surface(surface->surface);
-		wlr_scene_buffer_set_corner_radii(buffer, has_titlebar && !is_subsurface ?
-			corner_radii_bottom(corner_radius) : corner_radii_all(corner_radius));
+		wlr_scene_buffer_set_corner_radii(buffer, is_subsurface ?
+			corner_radii_all(corner_radius) :
+			content_corner_radii(closest_con, corner_radius, has_titlebar));
 		
 		if (is_subsurface) {
 			return;
@@ -337,8 +362,8 @@ void output_configure_scene(struct sway_output *output, struct wlr_scene_node *n
 		wlr_scene_blur_set_should_only_blur_bottom_layer(blur, should_optimize_blur);
 		wlr_scene_blur_set_strength(blur, opacity);
 		wlr_scene_node_set_enabled(node, closest_con->blur_enabled);
-		wlr_scene_blur_set_corner_radii(blur, has_titlebar ?
-			corner_radii_bottom(corner_radius) : corner_radii_all(corner_radius));
+		wlr_scene_blur_set_corner_radii(blur,
+			content_corner_radii(closest_con, corner_radius, has_titlebar));
 	}
 }
 

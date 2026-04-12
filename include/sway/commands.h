@@ -219,6 +219,8 @@ sway_cmd cmd_title_format;
 sway_cmd cmd_titlebar_border_thickness;
 sway_cmd cmd_titlebar_padding;
 sway_cmd cmd_titlebar_separator;
+sway_cmd cmd_vtab_position;
+sway_cmd cmd_vtab_width;
 sway_cmd cmd_unbindcode;
 sway_cmd cmd_unbindswitch;
 sway_cmd cmd_unbindgesture;

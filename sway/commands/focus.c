@@ -29,6 +29,7 @@ static bool get_direction_from_next_prev(struct sway_container *container,
 			break;
 		case L_VERT:
 		case L_STACKED:
+		case L_VTABBED:
 			*out = WLR_DIRECTION_UP;
 			break;
 		case L_NONE:
@@ -44,6 +45,7 @@ static bool get_direction_from_next_prev(struct sway_container *container,
 			break;
 		case L_VERT:
 		case L_STACKED:
+		case L_VTABBED:
 			*out = WLR_DIRECTION_DOWN;
 			break;
 		case L_NONE:
@@ -109,7 +111,8 @@ static struct sway_node *get_node_in_output_direction(
 			}
 			break;
 		case WLR_DIRECTION_UP:
-			if (ws->layout == L_VERT || ws->layout == L_STACKED) {
+			if (ws->layout == L_VERT || ws->layout == L_STACKED
+					|| ws->layout == L_VTABBED) {
 				// get most bottom child of new output
 				container = ws->tiling->items[ws->tiling->length-1];
 			} else {
@@ -117,7 +120,8 @@ static struct sway_node *get_node_in_output_direction(
 			}
 			break;
 		case WLR_DIRECTION_DOWN:
-			if (ws->layout == L_VERT || ws->layout == L_STACKED) {
+			if (ws->layout == L_VERT || ws->layout == L_STACKED
+					|| ws->layout == L_VTABBED) {
 				// get most top child of new output
 				container = ws->tiling->items[0];
 			} else {
@@ -168,7 +172,8 @@ static struct sway_node *node_get_in_direction_tiling(
 				desired = idx + (dir == WLR_DIRECTION_LEFT ? -1 : 1);
 			}
 		} else {
-			if (parent_layout == L_VERT || parent_layout == L_STACKED) {
+			if (parent_layout == L_VERT || parent_layout == L_STACKED
+					|| parent_layout == L_VTABBED) {
 				can_move = true;
 				desired = idx + (dir == WLR_DIRECTION_UP ? -1 : 1);
 			}
