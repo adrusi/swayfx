@@ -82,6 +82,7 @@ static bool is_parallel(enum sway_container_layout layout,
 	case L_TABBED:
 	case L_HORIZ:
 		return dir == WLR_DIRECTION_LEFT || dir == WLR_DIRECTION_RIGHT;
+	case L_VTABBED:
 	case L_STACKED:
 	case L_VERT:
 		return dir == WLR_DIRECTION_UP || dir == WLR_DIRECTION_DOWN;

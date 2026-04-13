@@ -83,6 +83,14 @@ struct sway_container *container_create(struct sway_view *view) {
 	c->title_bar.background_left = alloc_rect_node(c->title_bar.tree, &failed);
 	c->title_bar.background_right = alloc_rect_node(c->title_bar.tree, &failed);
 
+	if (!view) {
+		// vtabbed sidebar padding rects (disabled until layout == L_VTABBED)
+		c->vtab_pad_top.border = alloc_rect_node(c->content_tree, &failed);
+		c->vtab_pad_top.background = alloc_rect_node(c->content_tree, &failed);
+		c->vtab_pad_bottom.border = alloc_rect_node(c->content_tree, &failed);
+		c->vtab_pad_bottom.background = alloc_rect_node(c->content_tree, &failed);
+	}
+
 	if (view) {
 		// only containers with views can have borders
 		c->border.top = alloc_rect_node(c->border.tree, &failed);
@@ -109,6 +117,10 @@ struct sway_container *container_create(struct sway_view *view) {
 	if (!view) {
 		c->pending.children = create_list();
 		c->current.children = create_list();
+		wlr_scene_node_set_enabled(&c->vtab_pad_top.border->node, false);
+		wlr_scene_node_set_enabled(&c->vtab_pad_top.background->node, false);
+		wlr_scene_node_set_enabled(&c->vtab_pad_bottom.border->node, false);
+		wlr_scene_node_set_enabled(&c->vtab_pad_bottom.background->node, false);
 	}
 
 	c->pending.layout = L_NONE;
@@ -349,27 +361,9 @@ static struct fx_corner_radii get_titlebar_corners(struct sway_container *con) {
 	} else if (layout == L_STACKED && siblings->items[0] != con) {
 		return corner_radii_none();
 	} else if (layout == L_VTABBED) {
-		// Only the single outer corner of the first/last entry is rounded.
-		// The inner side of the sidebar is always flat (adjacent to window content).
-		bool is_first = siblings->items[0] == con;
-		bool is_last = siblings->items[siblings->length - 1] == con;
-		bool vtab_left = con->current.parent ?
-			con->current.parent->vtab_left : config->vtab_left;
-		corners = corner_radii_none();
-		if (is_first) {
-			if (vtab_left) {
-				corners.top_left = radius;
-			} else {
-				corners.top_right = radius;
-			}
-		}
-		if (is_last) {
-			if (vtab_left) {
-				corners.bottom_left = radius;
-			} else {
-				corners.bottom_right = radius;
-			}
-		}
+		// Corner rounding is handled by the vtab padding regions, not
+		// individual tab titlebars.
+		return corner_radii_none();
 	}
 
 	return corners;

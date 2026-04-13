@@ -420,6 +420,18 @@ static void arrange_inactive_child(struct sway_container *child,
 	disable_container(child);
 }
 
+// Set a premultiplied RGBA color on a scene rect.
+static void set_rect_color(struct wlr_scene_rect *rect,
+		const float color[4], float alpha) {
+	const float c[4] = {
+		color[0] * color[3] * alpha,
+		color[1] * color[3] * alpha,
+		color[2] * color[3] * alpha,
+		color[3] * alpha,
+	};
+	wlr_scene_rect_set_color(rect, c);
+}
+
 static void arrange_children(enum sway_container_layout layout, list_t *children,
 		struct sway_container *active, struct wlr_scene_tree *content,
 		int width, int height, int gaps) {
@@ -529,37 +541,177 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			? ((struct sway_container *)children->items[0])->current.parent : NULL;
 		int vtab_width = vtab_con ? vtab_con->vtab_width : config->vtab_width;
 		bool vtab_left = vtab_con ? vtab_con->vtab_left : config->vtab_left;
+		int corner_radius = vtab_con ? vtab_con->corner_radius : config->corner_radius;
 
-		struct sway_container *first = children->length == 1 ?
+		struct sway_container *lone = children->length == 1 ?
 			((struct sway_container *)children->items[0]) : NULL;
-		if (config->hide_lone_tab && first && first->view &&
-				first->current.border != B_NORMAL) {
+		if (config->hide_lone_tab && lone && lone->view &&
+				lone->current.border != B_NORMAL) {
 			vtab_width = 0;
 		}
 
-		int net_width = width - vtab_width;
 		int n = children->length;
+		int net_width = width - vtab_width;
 		// title_x: position of the sidebar relative to each child's scene_tree.
 		// Left sidebar: child scene_tree at x=vtab_width, title is at x=-vtab_width
 		// Right sidebar: child scene_tree at x=0, title is at x=net_width
 		int title_x = vtab_left ? -vtab_width : net_width;
 		int content_x_offset = vtab_left ? vtab_width : 0;
+		int pad_x = vtab_left ? 0 : net_width;
 
+		// Fixed-height tabs with symmetric padding above and below.
+		int tab_h = (int)container_titlebar_height();
+
+		// Minimum padding height: large enough for corner rounding and, later,
+		// scroll indicator triangles. Scale with both the corner radius and the
+		// titlebar height so it looks proportional at any font size.
+		int min_pad_h = MAX(corner_radius + config->titlebar_border_thickness,
+				tab_h / 2);
+
+		// Fit as many whole tabs as possible in the space between the two pads.
+		// Distribute any leftover pixels evenly between top and bottom padding so
+		// both strips are the same height (at most 1px is discarded if odd).
+		int tabs_space = height - 2 * min_pad_h;
+		int max_visible, pad_h;
+		if (tabs_space < tab_h) {
+			// Container is too short to fit even one tab between the minimum
+			// pads; give everything to the padding and show 1 tab anyway.
+			max_visible = 1;
+			pad_h = MAX(0, (height - tab_h) / 2);
+		} else {
+			max_visible = tabs_space / tab_h;
+			int leftover = tabs_space - max_visible * tab_h; // 0 .. tab_h-1
+			pad_h = min_pad_h + leftover / 2;               // symmetric, ≤1px lost
+		}
+		max_visible = MAX(1, MIN(max_visible, n));
+
+		// Find the active (focused) tab index.
+		int active_idx = 0;
+		for (int i = 0; i < n; i++) {
+			if (children->items[i] == active) { active_idx = i; break; }
+		}
+
+		// Clamp scroll so the active tab is always visible.
+		int scroll = vtab_con ? vtab_con->vtab_scroll : 0;
+		scroll = MAX(0, MIN(scroll, n - max_visible));
+		if (active_idx < scroll) scroll = active_idx;
+		if (active_idx >= scroll + max_visible) scroll = active_idx - max_visible + 1;
+		if (vtab_con) vtab_con->vtab_scroll = scroll;
+
+		int visible = MIN(n - scroll, max_visible);
+		int tabs_h = visible * tab_h;
+		int bot_y = pad_h + tabs_h;
+		int bot_h = height - bot_y;
+
+		// Render the vtab padding regions when we have a container and a sidebar.
+		if (vtab_con && vtab_width > 0) {
+			int t = config->titlebar_border_thickness;
+			int bg_cr = corner_radius;
+			int bd_cr = corner_radius + t;
+
+			struct border_colors *colors = &config->border_colors.unfocused;
+
+			// top-outer corner: top_left for left sidebar, top_right for right
+			struct fx_corner_radii top_bd_cr = vtab_left
+				? (struct fx_corner_radii){bd_cr, 0, 0, 0}
+				: (struct fx_corner_radii){0, bd_cr, 0, 0};
+			struct fx_corner_radii top_bg_cr = vtab_left
+				? (struct fx_corner_radii){bg_cr, 0, 0, 0}
+				: (struct fx_corner_radii){0, bg_cr, 0, 0};
+
+			wlr_scene_node_set_enabled(&vtab_con->vtab_pad_top.border->node, true);
+			wlr_scene_node_set_position(&vtab_con->vtab_pad_top.border->node, pad_x, 0);
+			wlr_scene_rect_set_size(vtab_con->vtab_pad_top.border, vtab_width, pad_h);
+			set_rect_color(vtab_con->vtab_pad_top.border, colors->border, 1.0f);
+			wlr_scene_rect_set_corner_radii(vtab_con->vtab_pad_top.border, top_bd_cr);
+			wlr_scene_rect_set_clipped_region(vtab_con->vtab_pad_top.border,
+				(struct clipped_region){
+					.corners = top_bg_cr,
+					// hole: inner area, no inset at bottom (tab below is adjacent)
+					.area = {t, t, vtab_width - 2 * t, pad_h - t},
+				});
+
+			wlr_scene_node_set_enabled(&vtab_con->vtab_pad_top.background->node, true);
+			wlr_scene_node_set_position(&vtab_con->vtab_pad_top.background->node,
+				pad_x + t, t);
+			wlr_scene_rect_set_size(vtab_con->vtab_pad_top.background,
+				vtab_width - 2 * t, pad_h - t);
+			set_rect_color(vtab_con->vtab_pad_top.background, colors->background, 1.0f);
+			wlr_scene_rect_set_corner_radii(vtab_con->vtab_pad_top.background, top_bg_cr);
+
+			// bottom-outer corner: bottom_left for left sidebar, bottom_right for right
+			struct fx_corner_radii bot_bd_cr = vtab_left
+				? (struct fx_corner_radii){0, 0, 0, bd_cr}
+				: (struct fx_corner_radii){0, 0, bd_cr, 0};
+			struct fx_corner_radii bot_bg_cr = vtab_left
+				? (struct fx_corner_radii){0, 0, 0, bg_cr}
+				: (struct fx_corner_radii){0, 0, bg_cr, 0};
+
+			if (bot_h > 0) {
+				wlr_scene_node_set_enabled(&vtab_con->vtab_pad_bottom.border->node, true);
+				wlr_scene_node_set_position(&vtab_con->vtab_pad_bottom.border->node,
+					pad_x, bot_y);
+				wlr_scene_rect_set_size(vtab_con->vtab_pad_bottom.border,
+					vtab_width, bot_h);
+				set_rect_color(vtab_con->vtab_pad_bottom.border, colors->border, 1.0f);
+				wlr_scene_rect_set_corner_radii(vtab_con->vtab_pad_bottom.border, bot_bd_cr);
+				wlr_scene_rect_set_clipped_region(vtab_con->vtab_pad_bottom.border,
+					(struct clipped_region){
+						.corners = bot_bg_cr,
+						// hole: inner area, no inset at top (last tab is adjacent)
+						.area = {t, 0, vtab_width - 2 * t, bot_h - t},
+					});
+
+				wlr_scene_node_set_enabled(&vtab_con->vtab_pad_bottom.background->node, true);
+				wlr_scene_node_set_position(&vtab_con->vtab_pad_bottom.background->node,
+					pad_x + t, bot_y);
+				wlr_scene_rect_set_size(vtab_con->vtab_pad_bottom.background,
+					vtab_width - 2 * t, bot_h - t);
+				set_rect_color(vtab_con->vtab_pad_bottom.background,
+					colors->background, 1.0f);
+				wlr_scene_rect_set_corner_radii(vtab_con->vtab_pad_bottom.background,
+					bot_bg_cr);
+			} else {
+				wlr_scene_node_set_enabled(&vtab_con->vtab_pad_bottom.border->node, false);
+				wlr_scene_node_set_enabled(&vtab_con->vtab_pad_bottom.background->node, false);
+			}
+		} else if (vtab_con) {
+			// vtab_width == 0 (hide_lone_tab): keep padding hidden
+			wlr_scene_node_set_enabled(&vtab_con->vtab_pad_top.border->node, false);
+			wlr_scene_node_set_enabled(&vtab_con->vtab_pad_top.background->node, false);
+			wlr_scene_node_set_enabled(&vtab_con->vtab_pad_bottom.border->node, false);
+			wlr_scene_node_set_enabled(&vtab_con->vtab_pad_bottom.background->node, false);
+		}
+
+		// Render each tab entry.
+		// Mirror the L_TABBED pattern: always reparent every child to content and
+		// always set border.tree based on activation, so no stale scene state
+		// persists when scroll changes.
 		for (int i = 0; i < n; i++) {
 			struct sway_container *child = children->items[i];
 			bool activated = child == active;
-			// Divide sidebar height equally among tab entries
-			int y_start = (int)((double)height * i / n);
-			int y_end = (int)((double)height * (i + 1) / n);
-			int slot_height = y_end - y_start;
+			int visible_idx = i - scroll;
+			bool in_view = visible_idx >= 0 && visible_idx < visible;
 
-			// Pass height=0 to hide title bar when vtab_width is 0 (hide_lone_tab)
-			arrange_title_bar(child, title_x, y_start, vtab_width, vtab_width > 0 ? slot_height : 0);
+			// Always place every child's scene_tree in the content tree so the
+			// scene hierarchy is consistent regardless of scroll position.
+			wlr_scene_node_set_enabled(&child->scene_tree->node, true);
+			wlr_scene_node_reparent(&child->scene_tree->node, content);
+
+			if (in_view) {
+				int tab_y = pad_h + visible_idx * tab_h;
+				arrange_title_bar(child, title_x, tab_y, vtab_width,
+					vtab_width > 0 ? tab_h : 0);
+			} else {
+				// Scrolled out of view: hide the sidebar entry.
+				wlr_scene_node_set_enabled(&child->title_bar.tree->node, false);
+			}
+
+			// Border/content visibility is driven purely by activation, same as
+			// L_TABBED. This clears any stale enabled state from previous frames.
 			wlr_scene_node_set_enabled(&child->border.tree->node, activated);
 			wlr_scene_node_set_enabled(&child->blur->node, activated);
 			wlr_scene_node_set_enabled(&child->shadow->node, false);
-			wlr_scene_node_set_enabled(&child->scene_tree->node, true);
-			wlr_scene_node_reparent(&child->scene_tree->node, content);
 
 			int effective_width = vtab_width > 0 ? net_width : width;
 			if (activated && effective_width > 0 && height > 0) {
@@ -832,6 +984,14 @@ static void _arrange_container(struct sway_container *con,
 				container_has_shadow(con) &&
 				(con->current.layout == L_TABBED || con->current.layout == L_STACKED
 				|| con->current.layout == L_VTABBED));
+
+		// Disable vtab padding if this container is no longer in vtabbed layout.
+		if (con->current.layout != L_VTABBED) {
+			wlr_scene_node_set_enabled(&con->vtab_pad_top.border->node, false);
+			wlr_scene_node_set_enabled(&con->vtab_pad_top.background->node, false);
+			wlr_scene_node_set_enabled(&con->vtab_pad_bottom.border->node, false);
+			wlr_scene_node_set_enabled(&con->vtab_pad_bottom.background->node, false);
+		}
 
 		arrange_children(con->current.layout, con->current.children,
 			con->current.focused_inactive_child, con->content_tree,

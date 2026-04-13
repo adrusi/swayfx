@@ -161,6 +161,13 @@ struct sway_container {
 	int vtab_width;   // sidebar width in pixels
 	bool vtab_left;   // true = left sidebar, false = right
 
+	// vtabbed sidebar scroll state and padding regions (non-view containers only)
+	int vtab_scroll;  // index of first visible tab
+	struct {
+		struct wlr_scene_rect *border;
+		struct wlr_scene_rect *background;
+	} vtab_pad_top, vtab_pad_bottom;
+
 	struct {
 		struct animation animation;
 		float from_alpha;
