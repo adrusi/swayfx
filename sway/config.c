@@ -317,6 +317,7 @@ static void config_defaults(struct sway_config *config) {
 
 	config->vtab_width = 220;
 	config->vtab_left = true;
+	config->vtab_padding = 0;
 
 	config->has_focused_tab_title = false;
 

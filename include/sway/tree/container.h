@@ -7,6 +7,8 @@
 #include <wlr/types/wlr_scene.h>
 #include "list.h"
 #include "sway/animation_manager.h"
+#include "sway/sway_text_node.h"
+#include "sway/vtab_indicator.h"
 #include "sway/tree/node.h"
 
 struct sway_view;
@@ -162,10 +164,13 @@ struct sway_container {
 	bool vtab_left;   // true = left sidebar, false = right
 
 	// vtabbed sidebar scroll state and padding regions (non-view containers only)
-	int vtab_scroll;  // index of first visible tab
+	int vtab_scroll;              // index of first visible tab
+	bool vtab_manual_scroll;      // true after vtab_scroll cmd; suppresses focus-snap
+	struct sway_container *vtab_last_active; // tracks focus changes to re-enable snap
 	struct {
 		struct wlr_scene_rect *border;
 		struct wlr_scene_rect *background;
+		struct vtab_indicator *indicator; // overflow triangle, NULL until first use
 	} vtab_pad_top, vtab_pad_bottom;
 
 	struct {

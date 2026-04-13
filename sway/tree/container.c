@@ -89,6 +89,9 @@ struct sway_container *container_create(struct sway_view *view) {
 		c->vtab_pad_top.background = alloc_rect_node(c->content_tree, &failed);
 		c->vtab_pad_bottom.border = alloc_rect_node(c->content_tree, &failed);
 		c->vtab_pad_bottom.background = alloc_rect_node(c->content_tree, &failed);
+		// Indicator text nodes are created lazily on first use; NULL until then.
+		c->vtab_pad_top.indicator = NULL;
+		c->vtab_pad_bottom.indicator = NULL;
 	}
 
 	if (view) {
@@ -121,6 +124,7 @@ struct sway_container *container_create(struct sway_view *view) {
 		wlr_scene_node_set_enabled(&c->vtab_pad_top.background->node, false);
 		wlr_scene_node_set_enabled(&c->vtab_pad_bottom.border->node, false);
 		wlr_scene_node_set_enabled(&c->vtab_pad_bottom.background->node, false);
+		// indicators start NULL; created lazily in transaction.c
 	}
 
 	c->pending.layout = L_NONE;
@@ -134,6 +138,9 @@ struct sway_container *container_create(struct sway_view *view) {
 	c->dim = config->default_dim_inactive;
 	c->vtab_width = config->vtab_width;
 	c->vtab_left = config->vtab_left;
+	c->vtab_scroll = 0;
+	c->vtab_manual_scroll = false;
+	c->vtab_last_active = NULL;
 
 	c->animation_state.animation = init_animation(c);
 	c->animation_state.from_alpha = 0.0f;

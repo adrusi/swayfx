@@ -599,6 +599,7 @@ struct sway_config {
 	// vtabbed layout settings
 	int vtab_width;         // sidebar width in pixels (default 220)
 	bool vtab_left;         // true = sidebar on left, false = sidebar on right
+	int vtab_padding;       // min padding region height in pixels (0 = auto: one titlebar height)
 
 	// border colors
 	struct {
