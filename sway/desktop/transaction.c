@@ -801,9 +801,9 @@ static void _arrange_container(struct sway_container *con,
 			wlr_scene_node_set_enabled(&con->title_bar.tree->node, false);
 			wlr_scene_node_set_enabled(&con->border.top->node, true);
 		} else {
-			// For vtabbed, enable border.top to render the outer top corner arc
-			bool vtab_top_corner = in_vtabbed && has_corner_radius && corner_radius > 0;
-			wlr_scene_node_set_enabled(&con->border.top->node, vtab_top_corner);
+			// For vtabbed, enable border.top whenever there's a pixel border to show.
+			bool vtab_top = in_vtabbed && border_width > 0;
+			wlr_scene_node_set_enabled(&con->border.top->node, vtab_top);
 		}
 
 		if (con->current.border == B_NORMAL) {
@@ -817,7 +817,7 @@ static void _arrange_container(struct sway_container *con,
 		} else if (con->current.border == B_PIXEL) {
 			container_update(con);
 			border_top = title_bar && con->current.border_top ? border_width : 0;
-			if (!title_bar && !con->current.border_top) {
+			if (!title_bar && !con->current.border_top && !in_vtabbed) {
 				vert_border_offset = 0;
 			}
 		} else if (con->current.border == B_NONE) {
@@ -831,6 +831,13 @@ static void _arrange_container(struct sway_container *con,
 			sway_assert(false, "unreachable");
 		}
 
+		// For vtabbed with a pixel border: expose a top border strip by
+		// pushing the view down, and position vertical borders below the arc.
+		if (in_vtabbed && border_width > 0) {
+			border_top = border_width;
+			vert_border_offset = corner_radius;  // overrides B_NORMAL's reset to 0
+		}
+
 		int border_bottom = con->current.border_bottom ? border_width : 0;
 		int border_left = con->current.border_left ? border_width : 0;
 		int border_right = con->current.border_right ? border_width : 0;
@@ -841,36 +848,43 @@ static void _arrange_container(struct sway_container *con,
 
 		if (border_top) {
 			wlr_scene_rect_set_size(con->border.top, width, border_top + corner_radius);
-			wlr_scene_rect_set_corner_radii(con->border.top, corner_radii_top(!has_corner_radius ? 0 :
-					corner_radius + border_width));
-			wlr_scene_rect_set_clipped_region(con->border.top, (struct clipped_region) {
-				.corners = corner_radii_top(corner_radius),
-				.area = {
-					.x = border_width,
-					.y = border_width,
-					.width = width - 2 * border_width,
-					.height = border_top + corner_radius
-				}
-			});
-		} else if (in_vtabbed && has_corner_radius && corner_radius > 0) {
-			// Render just the outer top corner arc for vtabbed containers.
-			// border.top overlays content_tree so we don't need to push content down.
-			// For left sidebar: outer top = top-right; for right sidebar: top-left.
-			int bw = vtab_left ? border_right : border_left;
-			struct fx_corner_radii cr_outer = vtab_left
-				? (struct fx_corner_radii){0, corner_radius + bw, 0, 0}
-				: (struct fx_corner_radii){corner_radius + bw, 0, 0, 0};
-			struct fx_corner_radii cr_clip = vtab_left
-				? (struct fx_corner_radii){0, corner_radius, 0, 0}
-				: (struct fx_corner_radii){corner_radius, 0, 0, 0};
-			wlr_scene_rect_set_size(con->border.top, width, corner_radius);
-			wlr_scene_rect_set_corner_radii(con->border.top, cr_outer);
-			wlr_scene_rect_set_clipped_region(con->border.top, (struct clipped_region){
-				.corners = cr_clip,
-				.area = vtab_left
-					? (struct wlr_box){0, 0, width - bw, corner_radius}
-					: (struct wlr_box){bw, 0, width - bw, corner_radius}
-			});
+			if (in_vtabbed) {
+				// Only round the outer (non-sidebar) top corner.
+				struct fx_corner_radii cr_outer = has_corner_radius
+					? (vtab_left
+						? (struct fx_corner_radii){0, corner_radius + border_width, 0, 0}
+						: (struct fx_corner_radii){corner_radius + border_width, 0, 0, 0})
+					: corner_radii_none();
+				struct fx_corner_radii cr_clip = has_corner_radius
+					? (vtab_left
+						? (struct fx_corner_radii){0, corner_radius, 0, 0}
+						: (struct fx_corner_radii){corner_radius, 0, 0, 0})
+					: corner_radii_none();
+				// Clip interior; only leave a strip on the outer (non-sidebar) side.
+				int top_clip_x = vtab_left ? 0 : border_width;
+				wlr_scene_rect_set_corner_radii(con->border.top, cr_outer);
+				wlr_scene_rect_set_clipped_region(con->border.top, (struct clipped_region) {
+					.corners = cr_clip,
+					.area = {
+						.x = top_clip_x,
+						.y = border_width,
+						.width = width - border_width,
+						.height = border_top + corner_radius
+					}
+				});
+			} else {
+				wlr_scene_rect_set_corner_radii(con->border.top, corner_radii_top(!has_corner_radius ? 0 :
+						corner_radius + border_width));
+				wlr_scene_rect_set_clipped_region(con->border.top, (struct clipped_region) {
+					.corners = corner_radii_top(corner_radius),
+					.area = {
+						.x = border_width,
+						.y = border_width,
+						.width = width - 2 * border_width,
+						.height = border_top + corner_radius
+					}
+				});
+			}
 		} else {
 			wlr_scene_rect_set_size(con->border.top, 0, 0);
 		}
@@ -895,14 +909,18 @@ static void _arrange_container(struct sway_container *con,
 			}
 			wlr_scene_rect_set_size(con->border.bottom, width, border_bottom + corner_radius);
 			wlr_scene_rect_set_corner_radii(con->border.bottom, bc_outer);
+			// For vtabbed, only leave the outer (non-sidebar) side strip visible.
+			// Left sidebar: no left strip (clip_x=0), right sidebar: no right strip.
+			int bot_clip_x = (in_vtabbed && vtab_left) ? 0 : border_width;
+			int bot_clip_w = in_vtabbed ? width - border_width : width - 2 * border_width;
 			wlr_scene_rect_set_clipped_region(con->border.bottom, (struct clipped_region) {
 				.corners = bc_clip,
 				// shift up one px to fix https://github.com/WillPower3309/swayfx/issues/386
 				// TODO: proper fix
 				.area = {
-					.x = border_width,
+					.x = bot_clip_x,
 					.y = -1,
-					.width = width - 2 * border_width,
+					.width = bot_clip_w,
 					.height = border_bottom - border_width + corner_radius + 1,
 				}
 			});
