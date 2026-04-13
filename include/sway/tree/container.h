@@ -167,6 +167,7 @@ struct sway_container {
 	int vtab_scroll;              // index of first visible tab
 	bool vtab_manual_scroll;      // true after vtab_scroll cmd; suppresses focus-snap
 	struct sway_container *vtab_last_active; // tracks focus changes to re-enable snap
+	float vtab_scroll_accum;      // unspent smooth-scroll delta (trackpad)
 	struct {
 		struct wlr_scene_rect *border;
 		struct wlr_scene_rect *background;

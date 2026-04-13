@@ -141,6 +141,7 @@ struct sway_container *container_create(struct sway_view *view) {
 	c->vtab_scroll = 0;
 	c->vtab_manual_scroll = false;
 	c->vtab_last_active = NULL;
+	c->vtab_scroll_accum = 0.0f;
 
 	c->animation_state.animation = init_animation(c);
 	c->animation_state.from_alpha = 0.0f;

@@ -7,6 +7,7 @@
 #include "gesture.h"
 #include "sway/desktop/transaction.h"
 #include "sway/input/cursor.h"
+#include "sway/tree/arrange.h"
 #include "sway/input/seat.h"
 #include "sway/input/tablet.h"
 #include "sway/layers.h"
@@ -691,6 +692,41 @@ static void handle_touch_down(struct sway_seat *seat,
  * Functions used by handle_pointer_axis  /
  *--------------------------------------*/
 
+// Returns true if (lx, ly) is within the vtab sidebar strip of con.
+static bool check_vtab_sidebar_at(struct sway_container *con, void *data) {
+	double *coords = data;
+	if (con->current.layout != L_VTABBED) return false;
+	int vtab_width = con->vtab_width;
+	if (vtab_width <= 0) return false;
+	double x = con->current.x, y = con->current.y;
+	double w = con->current.width, h = con->current.height;
+	double lx = coords[0], ly = coords[1];
+	if (ly < y || ly >= y + h) return false;
+	return con->vtab_left
+		? (lx >= x && lx < x + vtab_width)
+		: (lx >= x + w - vtab_width && lx < x + w);
+}
+
+// Returns the vtabbed container whose sidebar contains (lx, ly), or NULL.
+static struct sway_container *vtab_sidebar_at(
+		struct sway_seat *seat, double lx, double ly) {
+	struct sway_workspace *ws = seat_get_focused_workspace(seat);
+	if (!ws) return NULL;
+	double coords[2] = {lx, ly};
+	list_t *lists[2] = {ws->tiling, ws->floating};
+	for (int li = 0; li < 2; li++) {
+		list_t *list = lists[li];
+		for (int i = 0; i < list->length; i++) {
+			struct sway_container *top = list->items[i];
+			if (check_vtab_sidebar_at(top, coords)) return top;
+			struct sway_container *found =
+				container_find_child(top, check_vtab_sidebar_at, coords);
+			if (found) return found;
+		}
+	}
+	return NULL;
+}
+
 static uint32_t wl_axis_to_button(struct wlr_pointer_axis_event *event) {
 	switch (event->orientation) {
 	case WL_POINTER_AXIS_VERTICAL_SCROLL:
@@ -748,6 +784,42 @@ static void handle_pointer_axis(struct sway_seat *seat,
 	if (binding) {
 		seat_execute_command(seat, binding);
 		handled = true;
+	}
+
+	// Scrolling over a vtabbed sidebar scrolls the tab list (no focus change).
+	if (!handled && event->orientation == WL_POINTER_AXIS_VERTICAL_SCROLL) {
+		struct sway_container *vtab_con = vtab_sidebar_at(
+			seat, cursor->cursor->x, cursor->cursor->y);
+		if (vtab_con) {
+			int n = vtab_con->pending.children
+				? vtab_con->pending.children->length : 0;
+			int amount;
+			if (event->delta_discrete != 0) {
+				// Discrete mouse wheel: one step at a time; reset accumulator
+				// so a subsequent trackpad gesture starts fresh.
+				amount = roundf(scroll_factor *
+					event->delta_discrete / WLR_POINTER_AXIS_DISCRETE_STEP);
+				vtab_con->vtab_scroll_accum = 0.0f;
+			} else {
+				// Smooth scroll (trackpad): accumulate delta and emit
+				// whole steps. Use a lower threshold than
+				// WLR_POINTER_AXIS_DISCRETE_STEP (120) because scrolling
+				// one tab is a coarser gesture than scrolling window content.
+				const float step = WLR_POINTER_AXIS_DISCRETE_STEP / 6.0f;
+				vtab_con->vtab_scroll_accum +=
+					scroll_factor * event->delta;
+				amount = (int)(vtab_con->vtab_scroll_accum / step);
+				vtab_con->vtab_scroll_accum -= amount * step;
+			}
+			if (n > 0 && amount != 0) {
+				vtab_con->vtab_manual_scroll = true;
+				vtab_con->vtab_scroll =
+					MAX(0, MIN(n - 1, vtab_con->vtab_scroll + amount));
+				arrange_container(vtab_con);
+				transaction_commit_dirty();
+			}
+			handled = true;
+		}
 	}
 
 	// Scrolling on a tabbed or stacked title bar (handled as press event)
