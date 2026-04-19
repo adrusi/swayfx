@@ -1,5 +1,6 @@
 #ifndef _SWAY_VIEW_H
 #define _SWAY_VIEW_H
+#include <cairo.h>
 #include <scenefx/types/wlr_scene.h>
 #include <wayland-server-core.h>
 #include <wlr/config.h>
@@ -107,6 +108,10 @@ struct sway_view {
 	struct wl_listener foreign_destroy;
 
 	bool destroying;
+
+	// Favicon / window icon set via the window_icon IPC command.
+	// CAIRO_FORMAT_ARGB32 premultiplied.  NULL if none.  Owned by the view.
+	cairo_surface_t *icon;
 
 	list_t *executed_criteria; // struct criteria *
 
@@ -340,6 +345,9 @@ void view_update_app_id(struct sway_view *view);
  * changed.
  */
 void view_update_title(struct sway_view *view, bool force);
+
+// Set or clear the view's favicon/icon.  Takes ownership of surface.
+void view_set_icon(struct sway_view *view, cairo_surface_t *surface);
 
 /**
  * Run any criteria that match the view and haven't been run on this view

@@ -16,6 +16,8 @@
 #if WLR_HAS_XWAYLAND
 #include <wlr/xwayland.h>
 #endif
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
 #include "list.h"
 #include "log.h"
 #include "sway/criteria.h"
@@ -29,6 +31,7 @@
 #include "sway/input/seat.h"
 #include "sway/scene_descriptor.h"
 #include "sway/server.h"
+#include "sway/sway_icon_node.h"
 #include "sway/sway_text_node.h"
 #include "sway/tree/arrange.h"
 #include "sway/tree/container.h"
@@ -132,6 +135,11 @@ void view_destroy(struct sway_view *view) {
 	}
 	wl_list_remove(&view->events.unmap.listener_list);
 	list_free(view->executed_criteria);
+
+	if (view->icon) {
+		cairo_surface_destroy(view->icon);
+		view->icon = NULL;
+	}
 
 	view_assign_ctx(view, NULL);
 	wlr_scene_node_destroy(&view->image_capture_scene->tree.node);
@@ -1187,6 +1195,8 @@ void view_update_title(struct sway_view *view, bool force) {
 		view->container->formatted_title = NULL;
 	}
 
+	container_apply_title_regex(view->container);
+
 	view->container->title = title ? strdup(title) : NULL;
 
 	// Update title after the global font height is updated
@@ -1384,3 +1394,21 @@ void view_send_frame_done(struct sway_view *view) {
 		wlr_scene_node_for_each_buffer(node, send_frame_done_iterator, &when);
 	}
 }
+
+void view_set_icon(struct sway_view *view, cairo_surface_t *surface) {
+	if (view->icon) {
+		// Clear the icon node's reference before freeing the surface
+		if (view->container && view->container->title_bar.icon) {
+			sway_icon_node_set(view->container->title_bar.icon, NULL, 0);
+		}
+		cairo_surface_destroy(view->icon);
+	}
+	view->icon = surface;
+	if (view->container) {
+		container_update_icon(view->container);
+		container_arrange_title_bar(view->container);
+		node_set_dirty(&view->container->node);
+		transaction_commit_dirty();
+	}
+}
+

@@ -7,6 +7,7 @@
 #include <wlr/types/wlr_scene.h>
 #include "list.h"
 #include "sway/animation_manager.h"
+#include "sway/sway_icon_node.h"
 #include "sway/sway_text_node.h"
 #include "sway/vtab_indicator.h"
 #include "sway/tree/node.h"
@@ -85,6 +86,7 @@ struct sway_container {
 
 		struct sway_text_node *title_text;
 		struct sway_text_node *marks_text;
+		struct sway_icon_node *icon;  // NULL if view has no icon
 	} title_bar;
 
 	struct {
@@ -111,6 +113,13 @@ struct sway_container {
 	int title_width;
 
 	char *title_format;
+
+	// Regex substitution applied to formatted_title after title_format expansion.
+	// Set via the title_replace_regex command.  The pointer is a pcre2_code_8 *
+	// (PCRE2 width-8), kept as void * to avoid pulling pcre2.h into this header.
+	void *title_replace_regex;
+	char *title_replace_repl;
+	bool  title_replace_global;
 
 	// Height allocated for the sidebar title bar entry (vtabbed layout).
 	// 0 means use the default container_titlebar_height().
@@ -414,6 +423,12 @@ bool container_is_sticky_or_child(struct sway_container *con);
 int container_squash(struct sway_container *con);
 
 void container_arrange_title_bar(struct sway_container *con);
+
+// Create or update the icon scene node to match view->icon.
+void container_update_icon(struct sway_container *con);
+
+// Apply the container's title_replace_regex to formatted_title (in-place).
+void container_apply_title_regex(struct sway_container *con);
 
 void container_update(struct sway_container *con);
 

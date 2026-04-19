@@ -1,5 +1,7 @@
 #include <assert.h>
 #include <drm_fourcc.h>
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <wayland-server-core.h>
@@ -13,6 +15,7 @@
 #include "sway/input/seat.h"
 #include "sway/ipc-server.h"
 #include "sway/scene_descriptor.h"
+#include "sway/sway_icon_node.h"
 #include "sway/sway_text_node.h"
 #include "sway/output.h"
 #include "sway/server.h"
@@ -400,6 +403,61 @@ static void arrange_titlebar_bg_rect(struct wlr_scene_rect *rect,
 	}
 }
 
+void container_apply_title_regex(struct sway_container *con) {
+	if (!con->title_replace_regex || !con->formatted_title) {
+		return;
+	}
+
+	const char *input = con->formatted_title;
+	size_t inlen = strlen(input);
+	size_t repllen = strlen(con->title_replace_repl);
+	PCRE2_SIZE outlen = (PCRE2_SIZE)(inlen * 2 + repllen + 64);
+	char *outbuf = malloc(outlen);
+	if (!outbuf) {
+		return;
+	}
+
+	uint32_t opts = con->title_replace_global ? PCRE2_SUBSTITUTE_GLOBAL : 0;
+	int rc = pcre2_substitute((pcre2_code *)con->title_replace_regex,
+			(PCRE2_SPTR8)input, PCRE2_ZERO_TERMINATED,
+			0, opts, NULL, NULL,
+			(PCRE2_SPTR8)con->title_replace_repl, PCRE2_ZERO_TERMINATED,
+			(PCRE2_UCHAR8 *)outbuf, &outlen);
+	if (rc >= 0) {
+		free(con->formatted_title);
+		con->formatted_title = outbuf;
+	} else {
+		free(outbuf);
+	}
+}
+
+void container_update_icon(struct sway_container *con) {
+	if (!con->view) {
+		return;
+	}
+
+	cairo_surface_t *src = con->view->icon;
+	int height = con->title_height > 0
+		? con->title_height : (int)container_titlebar_height();
+	int thickness = config->titlebar_border_thickness;
+	int icon_h = MAX(height - 2 * thickness, 1);
+
+	if (!src) {
+		if (con->title_bar.icon) {
+			wlr_scene_node_destroy(con->title_bar.icon->node);
+			con->title_bar.icon = NULL;
+		}
+		return;
+	}
+
+	if (!con->title_bar.icon) {
+		con->title_bar.icon = sway_icon_node_create(
+				con->title_bar.tree, src, icon_h);
+	} else {
+		sway_icon_node_set(con->title_bar.icon, src, icon_h);
+	}
+}
+
 void container_arrange_title_bar(struct sway_container *con) {
 	enum alignment title_align = config->title_align;
 	int marks_buffer_width = 0;
@@ -409,18 +467,34 @@ void container_arrange_title_bar(struct sway_container *con) {
 	struct wlr_box left_cut = {0};
 	struct wlr_box right_cut = {0};
 
+	// Icon: update size and position, reserve space on the left.
+	int icon_reserve = 0;
+	if (con->title_bar.icon) {
+		int thickness = config->titlebar_border_thickness;
+		int icon_h = MAX(height - 2 * thickness, 1);
+		cairo_surface_t *src = con->view ? con->view->icon : NULL;
+		sway_icon_node_set(con->title_bar.icon, src, icon_h);
+
+		if (con->title_bar.icon->width > 0) {
+			int ix = config->titlebar_h_padding;
+			int iy = (height - con->title_bar.icon->height) / 2;
+			wlr_scene_node_set_position(con->title_bar.icon->node, ix, iy);
+			icon_reserve = con->title_bar.icon->width + config->titlebar_h_padding;
+		}
+	}
+
 	if (con->title_bar.marks_text) {
 		struct sway_text_node *node = con->title_bar.marks_text;
 		marks_buffer_width = node->width;
 
 		int h_padding;
 		if (title_align == ALIGN_RIGHT) {
-			h_padding = config->titlebar_h_padding;
+			h_padding = config->titlebar_h_padding + icon_reserve;
 		} else {
 			h_padding = width - config->titlebar_h_padding - marks_buffer_width;
 		}
 
-		h_padding = MAX(h_padding, config->titlebar_h_padding);
+		h_padding = MAX(h_padding, config->titlebar_h_padding + icon_reserve);
 
 		int alloc_width = MIN((int)node->width,
 			width - h_padding - config->titlebar_h_padding);
@@ -446,12 +520,13 @@ void container_arrange_title_bar(struct sway_container *con) {
 		if (title_align == ALIGN_RIGHT) {
 			h_padding = width - config->titlebar_h_padding - node->width;
 		} else if (title_align == ALIGN_CENTER) {
-			h_padding = ((int)width - marks_buffer_width - node->width) >> 1;
+			int available = (int)width - icon_reserve - marks_buffer_width;
+			h_padding = icon_reserve + (available - (int)node->width) / 2;
 		} else {
-			h_padding = config->titlebar_h_padding;
+			h_padding = config->titlebar_h_padding + icon_reserve;
 		}
 
-		h_padding = MAX(h_padding, config->titlebar_h_padding);
+		h_padding = MAX(h_padding, config->titlebar_h_padding + icon_reserve);
 
 		int alloc_width = MIN((int) node->width,
 			width - h_padding - config->titlebar_h_padding);
@@ -601,6 +676,10 @@ void container_destroy(struct sway_container *con) {
 	free(con->title);
 	free(con->formatted_title);
 	free(con->title_format);
+	if (con->title_replace_regex) {
+		pcre2_code_free((pcre2_code *)con->title_replace_regex);
+	}
+	free(con->title_replace_repl);
 	list_free(con->pending.children);
 	list_free(con->current.children);
 

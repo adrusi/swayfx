@@ -111,6 +111,7 @@ static const struct cmd_handler handlers[] = {
 	{ "tiling_drag", cmd_tiling_drag },
 	{ "tiling_drag_threshold", cmd_tiling_drag_threshold },
 	{ "title_align", cmd_title_align },
+	{ "title_replace_regex", cmd_title_replace_regex },
 	{ "titlebar_border_thickness", cmd_titlebar_border_thickness },
 	{ "titlebar_padding", cmd_titlebar_padding },
 	{ "titlebar_separator", cmd_titlebar_separator },
@@ -166,6 +167,7 @@ static const struct cmd_handler command_handlers[] = {
 	{ "sticky", cmd_sticky },
 	{ "swap", cmd_swap },
 	{ "title_format", cmd_title_format },
+	{ "window_icon", cmd_window_icon },
 	{ "unmark", cmd_unmark },
 	{ "urgent", cmd_urgent },
 };
