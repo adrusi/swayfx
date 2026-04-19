@@ -467,19 +467,26 @@ void container_arrange_title_bar(struct sway_container *con) {
 	struct wlr_box left_cut = {0};
 	struct wlr_box right_cut = {0};
 
+	// Compute background corner radius early so icon placement can respect it.
+	int tb_thickness = config->titlebar_border_thickness;
+	int background_corner_radius = container_has_corner_radius(con) ?
+			con->corner_radius + con->current.border_thickness - tb_thickness : 0;
+	if (background_corner_radius < 0) background_corner_radius = 0;
+
 	// Icon: update size and position, reserve space on the left.
 	int icon_reserve = 0;
 	if (con->title_bar.icon) {
-		int thickness = config->titlebar_border_thickness;
-		int icon_h = MAX(height - 2 * thickness, 1);
+		int icon_h = config->titlebar_icon_size > 0 ? config->titlebar_icon_size : 1;
 		cairo_surface_t *src = con->view ? con->view->icon : NULL;
 		sway_icon_node_set(con->title_bar.icon, src, icon_h);
 
 		if (con->title_bar.icon->width > 0) {
-			int ix = config->titlebar_h_padding;
+			// Keep the icon clear of rounded corners on the left side.
+			int safe_x = tb_thickness + background_corner_radius;
+			int ix = MAX(config->titlebar_h_padding, safe_x);
 			int iy = (height - con->title_bar.icon->height) / 2;
 			wlr_scene_node_set_position(con->title_bar.icon->node, ix, iy);
-			icon_reserve = con->title_bar.icon->width + config->titlebar_h_padding;
+			icon_reserve = ix + con->title_bar.icon->width;
 		}
 	}
 
