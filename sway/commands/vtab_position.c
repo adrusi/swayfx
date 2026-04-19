@@ -30,9 +30,12 @@ struct cmd_results *cmd_vtab_position(int argc, char **argv) {
 
 	struct sway_container *ctx = config->handler_context.container;
 	if (ctx == NULL) {
-		// Config context: update global default and propagate to all containers
+		// Config context: update global default and propagate to all containers.
+		// During reload, skip propagation so per-container overrides survive.
 		config->vtab_left = new_left;
-		root_for_each_container(reset_vtab_left_iter, NULL);
+		if (!config->reloading) {
+			root_for_each_container(reset_vtab_left_iter, NULL);
+		}
 		arrange_root();
 	} else {
 		// Runtime: find the nearest vtabbed ancestor and set on it
