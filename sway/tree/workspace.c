@@ -943,6 +943,22 @@ void workspace_detach(struct sway_workspace *workspace) {
 	node_set_dirty(&output->node);
 }
 
+/**
+ * Wrap a container that is about to become a direct tiling child of a
+ * workspace in a container with the configured workspace_layout, unless it
+ * already is one. Without the check, moving a tabbed/stacked/vtabbed
+ * container to the workspace level nests it inside a redundant copy of itself.
+ */
+static struct sway_container *wrap_default_layout(struct sway_container *con) {
+	if (config->default_layout == L_NONE) {
+		return con;
+	}
+	if (!con->view && con->pending.layout == config->default_layout) {
+		return con;
+	}
+	return container_split(con, config->default_layout);
+}
+
 struct sway_container *workspace_add_tiling(struct sway_workspace *workspace,
 		struct sway_container *con) {
 	if (con->pending.workspace) {
@@ -952,9 +968,7 @@ struct sway_container *workspace_add_tiling(struct sway_workspace *workspace,
 			container_reap_empty(old_parent);
 		}
 	}
-	if (config->default_layout != L_NONE) {
-		con = container_split(con, config->default_layout);
-	}
+	con = wrap_default_layout(con);
 	list_add(workspace->tiling, con);
 	con->pending.workspace = workspace;
 	container_for_each_child(con, set_workspace, NULL);
@@ -994,9 +1008,7 @@ struct sway_container *workspace_insert_tiling(struct sway_workspace *workspace,
 	if (con->pending.workspace) {
 		container_detach(con);
 	}
-	if (config->default_layout != L_NONE) {
-		con = container_split(con, config->default_layout);
-	}
+	con = wrap_default_layout(con);
 	workspace_insert_tiling_direct(workspace, con, index);
 	return con;
 }

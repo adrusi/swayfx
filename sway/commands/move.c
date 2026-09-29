@@ -196,6 +196,24 @@ static void container_move_to_workspace_from_direction(
 			move_dir);
 }
 
+/**
+ * Whether moving a container's children directly into an empty workspace
+ * preserves the tree. With workspace_layout set, each child becomes wrapped in
+ * its own workspace_layout container, so only unwrap if none would be.
+ */
+static bool can_unwrap_into_workspace(struct sway_container *container) {
+	if (config->default_layout == L_NONE) {
+		return true;
+	}
+	for (int i = 0; i < container->pending.children->length; ++i) {
+		struct sway_container *child = container->pending.children->items[i];
+		if (child->view || child->pending.layout != config->default_layout) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static void container_move_to_workspace(struct sway_container *container,
 		struct sway_workspace *workspace) {
 	if (container->pending.workspace == workspace) {
@@ -221,7 +239,8 @@ static void container_move_to_workspace(struct sway_container *container,
 		}
 	} else {
 		container_detach(container);
-		if (workspace_is_empty(workspace) && container->pending.children) {
+		if (workspace_is_empty(workspace) && container->pending.children
+				&& can_unwrap_into_workspace(container)) {
 			workspace_unwrap_children(workspace, container);
 			container_reap_empty(container);
 		} else {
