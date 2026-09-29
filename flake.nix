@@ -64,7 +64,10 @@
             self.packages.${system}.swayfx-unwrapped-git
             scenefx-git
           ];
-          packages = [ pkgs.gdb ]; # add debugging packages
+          packages = with pkgs; [
+            gdb # debugging
+            python3 foot # tests/vtab/run_tests.py
+          ];
           shellHook = ''
             (
               mkdir -p "$PWD/subprojects" && cd "$PWD/subprojects"
