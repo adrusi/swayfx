@@ -83,6 +83,7 @@ struct sway_container {
 		struct wlr_scene_rect *border;
 		struct wlr_scene_rect *background_left;
 		struct wlr_scene_rect *background_right;
+		struct wlr_scene_rect *indicator;  // selection rule (titlebar_indicator)
 
 		struct sway_text_node *title_text;
 		struct sway_text_node *marks_text;
@@ -182,6 +183,11 @@ struct sway_container {
 		struct wlr_scene_rect *background;
 		struct vtab_indicator *indicator; // overflow triangle, NULL until first use
 	} vtab_pad_top, vtab_pad_bottom;
+
+	// tab_frame: the tab bar's or sidebar's outer edges, drawn in the active
+	// child's border color (top, bottom and outer side for vtabs; top, left
+	// and right for tab bars)
+	struct wlr_scene_rect *tab_frame[3];
 
 	struct {
 		struct animation animation;
@@ -431,6 +437,9 @@ void container_update_icon(struct sway_container *con);
 void container_apply_title_regex(struct sway_container *con);
 
 void container_update(struct sway_container *con);
+
+// The border colors (client.*) a container is currently drawn with.
+struct border_colors *container_get_current_colors(struct sway_container *con);
 
 void container_update_itself_and_parents(struct sway_container *con);
 

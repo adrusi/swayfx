@@ -389,6 +389,38 @@ static void arrange_title_bar(struct sway_container *con,
 	container_arrange_title_bar(con);
 }
 
+// titlebar_indicator: a rule on the active tab of a tabbed, stacked or vtabbed
+// container, along the top edge of horizontal tabs and the outer edge of
+// vertical tabs. Its color is set with the rest of the title bar in
+// container_update.
+static void arrange_tab_indicator(struct sway_container *con, bool selected,
+		bool vertical, bool left) {
+	struct wlr_scene_rect *ind = con->title_bar.indicator;
+	int w = vertical
+		? config->titlebar_indicator : config->titlebar_indicator_horizontal;
+	if (!selected || w <= 0 || con->title_width <= 0 || con->title_height <= 0) {
+		wlr_scene_node_set_enabled(&ind->node, false);
+		return;
+	}
+
+	if (vertical) {
+		wlr_scene_rect_set_size(ind, MIN(w, con->title_width), con->title_height);
+		wlr_scene_node_set_position(&ind->node,
+			left ? 0 : con->title_width - MIN(w, con->title_width), 0);
+	} else {
+		wlr_scene_rect_set_size(ind, con->title_width, MIN(w, con->title_height));
+		wlr_scene_node_set_position(&ind->node, 0, 0);
+	}
+	wlr_scene_node_set_enabled(&ind->node, true);
+	wlr_scene_node_raise_to_top(&ind->node);
+}
+
+static void disable_tab_frame(struct sway_container *con) {
+	for (int e = 0; e < 3; e++) {
+		wlr_scene_node_set_enabled(&con->tab_frame[e]->node, false);
+	}
+}
+
 static void disable_container(struct sway_container *con) {
 	if (con->view) {
 		wlr_scene_node_reparent(&con->view->scene_tree->node, con->content_tree);
@@ -434,6 +466,41 @@ static void set_rect_color(struct wlr_scene_rect *rect,
 	wlr_scene_rect_set_color(rect, c);
 }
 
+// tab_frame: the container whose tabs these children are, if any.
+static struct sway_container *tab_frame_owner(list_t *children) {
+	if (!config->tab_frame || children->length == 0) {
+		return NULL;
+	}
+	return ((struct sway_container *)children->items[0])->current.parent;
+}
+
+static int tab_frame_width(struct sway_container *active) {
+	return active && active->view
+		? active->current.border_thickness : config->border_thickness;
+}
+
+// The frame takes the active child's border color. A nested container has no
+// border of its own, so it takes focused or not by whether focus is inside it.
+static const float *tab_frame_color(struct sway_container *active) {
+	if (!active) {
+		return config->border_colors.unfocused.child_border;
+	}
+	struct border_colors *colors = container_get_current_colors(active);
+	if (colors == &config->border_colors.focused_tab_title) {
+		colors = &config->border_colors.focused;
+	}
+	return colors->child_border;
+}
+
+static void place_tab_frame_edge(struct wlr_scene_rect *edge,
+		int x, int y, int width, int height, const float *color) {
+	wlr_scene_rect_set_size(edge, MAX(0, width), MAX(0, height));
+	wlr_scene_node_set_position(&edge->node, x, y);
+	set_rect_color(edge, color, 1.0f);
+	wlr_scene_node_set_enabled(&edge->node, true);
+	wlr_scene_node_raise_to_top(&edge->node);
+}
+
 static void arrange_children(enum sway_container_layout layout, list_t *children,
 		struct sway_container *active, struct wlr_scene_tree *content,
 		int width, int height, int gaps) {
@@ -447,15 +514,22 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			title_bar_height = 0;
 		}
 
-		double w = (double) width / children->length;
+		// tab_frame: inset the tabs so the frame never covers a selection rule
+		struct sway_container *frame_con = title_bar_height > 0
+			? tab_frame_owner(children) : NULL;
+		int fw = frame_con
+			? MAX(0, MIN(tab_frame_width(active), title_bar_height / 2)) : 0;
+
+		double w = (double) (width - 2 * fw) / children->length;
 		int title_offset = 0;
 		for (int i = 0; i < children->length; i++) {
 			struct sway_container *child = children->items[i];
 			bool activated = child == active;
 			int next_title_offset = round(w * i + w);
 
-			arrange_title_bar(child, title_offset, -title_bar_height,
-				next_title_offset - title_offset, title_bar_height);
+			arrange_title_bar(child, fw + title_offset, -title_bar_height + fw,
+				next_title_offset - title_offset, title_bar_height - fw);
+			arrange_tab_indicator(child, activated, false, false);
 			wlr_scene_node_set_enabled(&child->border.tree->node, activated);
 			wlr_scene_node_set_enabled(&child->blur->node, activated);
 			wlr_scene_node_set_enabled(&child->shadow->node, false);
@@ -471,6 +545,17 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 
 			title_offset = next_title_offset;
 		}
+
+		if (frame_con && fw > 0) {
+			const float *color = tab_frame_color(active);
+			place_tab_frame_edge(frame_con->tab_frame[0], 0, 0, width, fw, color);
+			place_tab_frame_edge(frame_con->tab_frame[1], 0, 0, fw, title_bar_height, color);
+			place_tab_frame_edge(frame_con->tab_frame[2],
+				width - fw, 0, fw, title_bar_height, color);
+		} else if (children->length > 0 &&
+				((struct sway_container *)children->items[0])->current.parent) {
+			disable_tab_frame(((struct sway_container *)children->items[0])->current.parent);
+		}
 	} else if (layout == L_STACKED) {
 		struct sway_container *first = children->length == 1 ?
 			((struct sway_container *)children->items[0]) : NULL;
@@ -481,12 +566,19 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 
 		int title_height = title_bar_height * children->length;
 
+		struct sway_container *frame_con = title_bar_height > 0
+			? tab_frame_owner(children) : NULL;
+		int fw = frame_con
+			? MAX(0, MIN(tab_frame_width(active), width / 2)) : 0;
+
 		int y = 0;
 		for (int i = 0; i < children->length; i++) {
 			struct sway_container *child = children->items[i];
 			bool activated = child == active;
 
-			arrange_title_bar(child, 0, y - title_height, width, title_bar_height);
+			arrange_title_bar(child, fw, y - title_height, width - 2 * fw,
+				title_bar_height);
+			arrange_tab_indicator(child, activated, false, false);
 			wlr_scene_node_set_enabled(&child->border.tree->node, activated);
 			wlr_scene_node_set_enabled(&child->blur->node, activated);
 			wlr_scene_node_set_enabled(&child->shadow->node, false);
@@ -501,6 +593,17 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			}
 
 			y += title_bar_height;
+		}
+
+		if (frame_con && fw > 0) {
+			const float *color = tab_frame_color(active);
+			place_tab_frame_edge(frame_con->tab_frame[0], 0, 0, width, fw, color);
+			place_tab_frame_edge(frame_con->tab_frame[1], 0, 0, fw, title_height, color);
+			place_tab_frame_edge(frame_con->tab_frame[2],
+				width - fw, 0, fw, title_height, color);
+		} else if (children->length > 0 &&
+				((struct sway_container *)children->items[0])->current.parent) {
+			disable_tab_frame(((struct sway_container *)children->items[0])->current.parent);
 		}
 	} else if (layout == L_VERT) {
 		int off = 0;
@@ -764,6 +867,14 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			}
 		}
 
+		// tab_frame: the sidebar's outer edges carry the active child's border
+		// so the frame runs around sidebar and content together. Tabs are inset
+		// by the frame width so the frame never covers a selection rule.
+		bool framed = config->tab_frame && vtab_con && vtab_width > 0;
+		int frame_w = framed
+			? MAX(0, MIN(tab_frame_width(active), vtab_width)) : 0;
+		int frame_inset_x = vtab_left ? frame_w : 0;
+
 		// Render each tab entry.
 		// Mirror the L_TABBED pattern: always reparent every child to content and
 		// always set border.tree based on activation, so no stale scene state
@@ -781,8 +892,9 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 
 			if (in_view) {
 				int tab_y = pad_h + visible_idx * tab_h;
-				arrange_title_bar(child, title_x, tab_y, vtab_width,
-					vtab_width > 0 ? tab_h : 0);
+				arrange_title_bar(child, title_x + frame_inset_x, tab_y,
+					vtab_width - frame_w, vtab_width > 0 ? tab_h : 0);
+				arrange_tab_indicator(child, activated, true, vtab_left);
 			} else {
 				// Scrolled out of view: hide the sidebar entry.
 				wlr_scene_node_set_enabled(&child->title_bar.tree->node, false);
@@ -802,6 +914,19 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 				arrange_inactive_child(child, effective_width, height,
 					content_x_offset, 0);
 			}
+		}
+
+		if (framed && frame_w > 0) {
+			const float *color = tab_frame_color(active);
+			int side_x = vtab_left ? pad_x : pad_x + vtab_width - frame_w;
+			place_tab_frame_edge(vtab_con->tab_frame[0],
+				pad_x, 0, vtab_width, frame_w, color);
+			place_tab_frame_edge(vtab_con->tab_frame[1],
+				pad_x, MAX(0, height - frame_w), vtab_width, frame_w, color);
+			place_tab_frame_edge(vtab_con->tab_frame[2],
+				side_x, 0, frame_w, height, color);
+		} else if (vtab_con) {
+			disable_tab_frame(vtab_con);
 		}
 	} else {
 		sway_assert(false, "unreachable");
@@ -864,6 +989,9 @@ static void _arrange_container(struct sway_container *con,
 		// Detect vtabbed parent for asymmetric corner rounding
 		bool in_vtabbed = false;
 		bool vtab_left = true;
+		// tab_frame: a tabbed/stacked child keeps its top border as the divider
+		// between the tab bar and the content
+		bool framed_top = false;
 		{
 			enum sway_container_layout parent_layout = L_NONE;
 			if (con->current.parent) {
@@ -871,6 +999,11 @@ static void _arrange_container(struct sway_container *con,
 			} else if (con->current.workspace) {
 				parent_layout = con->current.workspace->current.layout;
 			}
+			framed_top = config->tab_frame && !title_bar
+				&& con->current.parent
+				&& con->current.border == B_PIXEL && con->current.border_top
+				&& border_width > 0
+				&& (parent_layout == L_TABBED || parent_layout == L_STACKED);
 			if (parent_layout == L_VTABBED) {
 				in_vtabbed = true;
 				vtab_left = con->current.parent
@@ -884,7 +1017,7 @@ static void _arrange_container(struct sway_container *con,
 		} else {
 			// For vtabbed, enable border.top whenever there's a pixel border to show.
 			bool vtab_top = in_vtabbed && border_width > 0;
-			wlr_scene_node_set_enabled(&con->border.top->node, vtab_top);
+			wlr_scene_node_set_enabled(&con->border.top->node, vtab_top || framed_top);
 		}
 
 		if (con->current.border == B_NORMAL) {
@@ -917,6 +1050,9 @@ static void _arrange_container(struct sway_container *con,
 		if (in_vtabbed && border_width > 0) {
 			border_top = border_width;
 			vert_border_offset = corner_radius;  // overrides B_NORMAL's reset to 0
+		}
+		if (framed_top) {
+			border_top = border_width;
 		}
 
 		int border_bottom = con->current.border_bottom ? border_width : 0;
@@ -1083,6 +1219,11 @@ static void _arrange_container(struct sway_container *con,
 				container_has_shadow(con) &&
 				(con->current.layout == L_TABBED || con->current.layout == L_STACKED
 				|| con->current.layout == L_VTABBED));
+
+		if (con->current.layout != L_VTABBED && con->current.layout != L_TABBED
+				&& con->current.layout != L_STACKED) {
+			disable_tab_frame(con);
+		}
 
 		// Disable vtab padding and indicators if no longer in vtabbed layout.
 		if (con->current.layout != L_VTABBED) {

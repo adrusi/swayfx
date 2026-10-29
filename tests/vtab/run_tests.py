@@ -398,7 +398,20 @@ WORKSPACE_LAYOUTS = ["vtabbed", "tabbed", "stacking", "default"]
 ANIMATION_DURATIONS = [0, 200]
 
 
-def make_config(wl, anim):
+# Decoration styles every configuration also runs under: the defaults, and
+# the framed vtab style (tab_frame plus a titlebar_indicator selection rule).
+STYLES = {
+    "default": "",
+    "framed": textwrap.dedent("""\
+        tab_frame enable
+        titlebar_indicator 3 2
+        titlebar_border_thickness 0
+        default_border pixel 1
+        """),
+}
+
+
+def make_config(wl, anim, style="default"):
     return textwrap.dedent(f"""\
         workspace_layout {wl}
         default_orientation horizontal
@@ -407,13 +420,13 @@ def make_config(wl, anim):
         gaps inner 10
         shadows on
         blur on
-        """)
+        """) + STYLES[style]
 
 
-def run_config(args, wl, anim):
-    label = f"workspace_layout={wl} animation_duration_ms={anim}"
+def run_config(args, wl, anim, style):
+    label = f"workspace_layout={wl} animation_duration_ms={anim} style={style}"
     print(f"== {label}")
-    sway = Sway(args.sway, make_config(wl, anim), verbose=args.verbose)
+    sway = Sway(args.sway, make_config(wl, anim, style), verbose=args.verbose)
     failures = 0
     try:
         for scenario in SCENARIOS:
@@ -467,7 +480,8 @@ def main():
     failures = 0
     for wl in WORKSPACE_LAYOUTS:
         for anim in ANIMATION_DURATIONS:
-            failures += run_config(args, wl, anim)
+            for style in STYLES:
+                failures += run_config(args, wl, anim, style)
     print(f"\n{failures} failure(s)" if failures else "\nall passed")
     sys.exit(1 if failures else 0)
 

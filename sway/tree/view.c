@@ -421,23 +421,27 @@ void view_autoconfigure(struct sway_view *view) {
 			|| !config->hide_lone_tab;
 		if (show_titlebar) {
 			enum sway_container_layout layout = container_parent_layout(con);
+			// With tab_frame the top border stays, as the divider between the
+			// tab bar and the content.
 			if (layout == L_TABBED) {
 				y_offset = container_titlebar_height();
-				con->pending.border_top = false;
+				con->pending.border_top &= config->tab_frame;
 			} else if (layout == L_STACKED) {
 				y_offset = container_titlebar_height() * siblings->length;
-				con->pending.border_top = false;
+				con->pending.border_top &= config->tab_frame;
 			} else if (layout == L_VTABBED) {
 				vtab_sidebar = true;
 				struct sway_container *vtab_con = con->pending.parent;
 				int vtab_width = vtab_con ? vtab_con->vtab_width : config->vtab_width;
 				bool vtab_left = vtab_con ? vtab_con->vtab_left : config->vtab_left;
+				// With tab_frame the sidebar-side border stays, as the
+				// divider between sidebar and content.
 				if (vtab_left) {
 					x_offset = vtab_width;
-					con->pending.border_left = false;
+					con->pending.border_left &= config->tab_frame;
 				} else {
 					width_reduce = vtab_width;
-					con->pending.border_right = false;
+					con->pending.border_right &= config->tab_frame;
 				}
 				con->pending.border_top = false;
 			}

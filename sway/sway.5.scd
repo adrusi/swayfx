@@ -847,6 +847,23 @@ The default colors are:
 *titlebar_border_thickness* <thickness>
 	Thickness of the titlebar border in pixels
 
+*titlebar_indicator* <vertical> [<horizontal>]
+	Draws a selection rule on the active tab of each tabbed, stacked and
+	vtabbed container: _vertical_ pixels wide along the outer edge of vertical
+	tabs, _horizontal_ pixels (default: same as _vertical_) along the top edge
+	of horizontal tabs. It takes the tab's border color, so tabs on the path
+	to the focused window use *client.focused* or *client.focused_tab_title*
+	and others *client.focused_inactive*. Title text on horizontal tabs is
+	shifted down by half the rule. 0 (the default) disables it.
+
+*tab_frame* enable|disable
+	Frames tabbed, stacked and vtabbed containers as one object: the outer
+	edges of the tab bar or vtab sidebar are drawn in the active child's
+	_child_border_ color and border thickness, so the frame runs around the
+	tabs and the content together. The client keeps its border on the side
+	facing the tabs, drawn in the *client.unfocused* _child_border_ color as
+	a divider. Default is disable.
+
 *titlebar_padding* <horizontal> [<vertical>]
 	Padding of the text in the titlebar. _horizontal_ value affects horizontal
 	padding of the text while _vertical_ value affects vertical padding (space

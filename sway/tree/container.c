@@ -85,6 +85,7 @@ struct sway_container *container_create(struct sway_view *view) {
 	c->title_bar.border = alloc_rect_node(c->title_bar.tree, &failed);
 	c->title_bar.background_left = alloc_rect_node(c->title_bar.tree, &failed);
 	c->title_bar.background_right = alloc_rect_node(c->title_bar.tree, &failed);
+	c->title_bar.indicator = alloc_rect_node(c->title_bar.tree, &failed);
 
 	if (!view) {
 		// vtabbed sidebar padding rects (disabled until layout == L_VTABBED)
@@ -92,6 +93,9 @@ struct sway_container *container_create(struct sway_view *view) {
 		c->vtab_pad_top.background = alloc_rect_node(c->content_tree, &failed);
 		c->vtab_pad_bottom.border = alloc_rect_node(c->content_tree, &failed);
 		c->vtab_pad_bottom.background = alloc_rect_node(c->content_tree, &failed);
+		for (int e = 0; e < 3; e++) {
+			c->tab_frame[e] = alloc_rect_node(c->content_tree, &failed);
+		}
 		// Indicator text nodes are created lazily on first use; NULL until then.
 		c->vtab_pad_top.indicator = NULL;
 		c->vtab_pad_bottom.indicator = NULL;
@@ -127,8 +131,13 @@ struct sway_container *container_create(struct sway_view *view) {
 		wlr_scene_node_set_enabled(&c->vtab_pad_top.background->node, false);
 		wlr_scene_node_set_enabled(&c->vtab_pad_bottom.border->node, false);
 		wlr_scene_node_set_enabled(&c->vtab_pad_bottom.background->node, false);
+		for (int e = 0; e < 3; e++) {
+			wlr_scene_node_set_enabled(&c->tab_frame[e]->node, false);
+		}
 		// indicators start NULL; created lazily in transaction.c
 	}
+
+	wlr_scene_node_set_enabled(&c->title_bar.indicator->node, false);
 
 	c->pending.layout = L_NONE;
 	c->view = view;
@@ -194,7 +203,7 @@ static bool container_is_current_parent_focused(struct sway_container *con) {
 	return false;
 }
 
-static struct border_colors *container_get_current_colors(
+struct border_colors *container_get_current_colors(
 		struct sway_container *con) {
 	struct border_colors *colors;
 
@@ -300,11 +309,29 @@ void container_update(struct sway_container *con) {
 	scene_rect_set_color(con->title_bar.background_left, colors->background, alpha);
 	scene_rect_set_color(con->title_bar.background_right, colors->background, alpha);
 	scene_rect_set_color(con->title_bar.border, colors->border, alpha);
+	scene_rect_set_color(con->title_bar.indicator, colors->border, alpha);
 
 	if (con->view) {
-		scene_rect_set_color(con->border.top, colors->child_border, alpha);
+		float left[4], top[4];
+		memcpy(left, colors->child_border, sizeof(left));
+		memcpy(top, colors->child_border, sizeof(top));
+
+		// tab_frame: the side facing the tabs is a divider inside the
+		// container's frame, not part of it, so it takes the neutral color.
+		if (config->tab_frame && !container_is_current_floating(con)) {
+			float *divider = config->border_colors.unfocused.child_border;
+			if (layout == L_VTABBED) {
+				bool vtab_left = con->current.parent ?
+					con->current.parent->vtab_left : config->vtab_left;
+				memcpy(vtab_left ? left : right, divider, sizeof(left));
+			} else if (layout == L_TABBED || layout == L_STACKED) {
+				memcpy(top, divider, sizeof(top));
+			}
+		}
+
+		scene_rect_set_color(con->border.top, top, alpha);
 		scene_rect_set_color(con->border.bottom, bottom, alpha);
-		scene_rect_set_color(con->border.left, colors->child_border, alpha);
+		scene_rect_set_color(con->border.left, left, alpha);
 		scene_rect_set_color(con->border.right, right, alpha);
 
 		float *shadow_color = view_is_urgent(con->view) || con->current.focused ?
@@ -464,6 +491,21 @@ void container_arrange_title_bar(struct sway_container *con) {
 	int width = con->title_width;
 	int height = con->title_height > 0 ? con->title_height : (int)container_titlebar_height();
 
+	// A selection rule on the top edge of a horizontal tab takes space from
+	// the text area; center the text in what's left below it.
+	int text_dy = 0;
+	if (config->titlebar_indicator_horizontal > 0) {
+		enum sway_container_layout parent_layout = L_NONE;
+		if (con->current.parent) {
+			parent_layout = con->current.parent->current.layout;
+		} else if (con->current.workspace) {
+			parent_layout = con->current.workspace->current.layout;
+		}
+		if (parent_layout == L_TABBED || parent_layout == L_STACKED) {
+			text_dy = (config->titlebar_indicator_horizontal + 1) / 2;
+		}
+	}
+
 	struct wlr_box left_cut = {0};
 	struct wlr_box right_cut = {0};
 
@@ -484,7 +526,7 @@ void container_arrange_title_bar(struct sway_container *con) {
 			// Keep the icon clear of rounded corners on the left side.
 			int safe_x = tb_thickness + background_corner_radius;
 			int ix = MAX(config->titlebar_h_padding, safe_x);
-			int iy = (height - con->title_bar.icon->height) / 2;
+			int iy = text_dy + (height - con->title_bar.icon->height) / 2;
 			wlr_scene_node_set_position(con->title_bar.icon->node, ix, iy);
 			icon_reserve = ix + con->title_bar.icon->width;
 		}
@@ -509,7 +551,7 @@ void container_arrange_title_bar(struct sway_container *con) {
 
 		sway_text_node_set_max_width(node, alloc_width);
 		wlr_scene_node_set_position(node->node,
-			h_padding, (height - node->height) >> 1);
+			h_padding, text_dy + ((height - node->height) >> 1));
 
 		struct wlr_box *slot = title_align == ALIGN_RIGHT ? &left_cut : &right_cut;
 		*slot = (struct wlr_box) {
@@ -541,7 +583,7 @@ void container_arrange_title_bar(struct sway_container *con) {
 
 		sway_text_node_set_max_width(node, alloc_width);
 		wlr_scene_node_set_position(node->node,
-			h_padding, (height - node->height) >> 1);
+			h_padding, text_dy + ((height - node->height) >> 1));
 
 		struct wlr_box *slot = title_align == ALIGN_RIGHT ? &right_cut : &left_cut;
 		*slot = (struct wlr_box) {
