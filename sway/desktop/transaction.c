@@ -737,12 +737,15 @@ static void arrange_children(enum sway_container_layout layout, list_t *children
 			int bg_cr = corner_radius;
 			int bd_cr = corner_radius + t;
 
+			// A pad standing in for a selected tab scrolled out of view takes
+			// that tab's colors, so it reads focused only when the tab would.
+			struct border_colors *hidden_colors = active
+				? container_get_current_colors(active)
+				: &config->border_colors.focused;
 			struct border_colors *top_colors = focused_above
-				? &config->border_colors.focused
-				: &config->border_colors.unfocused;
+				? hidden_colors : &config->border_colors.unfocused;
 			struct border_colors *bot_colors = focused_below
-				? &config->border_colors.focused
-				: &config->border_colors.unfocused;
+				? hidden_colors : &config->border_colors.unfocused;
 
 			// top-outer corner: top_left for left sidebar, top_right for right
 			struct fx_corner_radii top_bd_cr = vtab_left
