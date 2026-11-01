@@ -491,18 +491,31 @@ void container_arrange_title_bar(struct sway_container *con) {
 	int width = con->title_width;
 	int height = con->title_height > 0 ? con->title_height : (int)container_titlebar_height();
 
-	// A selection rule on the top edge of a horizontal tab takes space from
-	// the text area; center the text in what's left below it.
+	// A selection rule takes space from the text area. On the top edge of a
+	// horizontal tab, center the text in what's left below it; on the outer
+	// edge of a vertical tab, add the rule's width to that side's padding.
+	// Every tab in the container shifts alike, so text doesn't move when the
+	// selection does.
+	enum sway_container_layout parent_layout = L_NONE;
+	if (con->current.parent) {
+		parent_layout = con->current.parent->current.layout;
+	} else if (con->current.workspace) {
+		parent_layout = con->current.workspace->current.layout;
+	}
 	int text_dy = 0;
-	if (config->titlebar_indicator_horizontal > 0) {
-		enum sway_container_layout parent_layout = L_NONE;
-		if (con->current.parent) {
-			parent_layout = con->current.parent->current.layout;
-		} else if (con->current.workspace) {
-			parent_layout = con->current.workspace->current.layout;
-		}
-		if (parent_layout == L_TABBED || parent_layout == L_STACKED) {
-			text_dy = (config->titlebar_indicator_horizontal + 1) / 2;
+	int pad_l = config->titlebar_h_padding;
+	int pad_r = config->titlebar_h_padding;
+	if (config->titlebar_indicator_horizontal > 0 &&
+			(parent_layout == L_TABBED || parent_layout == L_STACKED)) {
+		text_dy = (config->titlebar_indicator_horizontal + 1) / 2;
+	}
+	if (config->titlebar_indicator > 0 && parent_layout == L_VTABBED) {
+		bool vtab_left = con->current.parent
+			? con->current.parent->vtab_left : config->vtab_left;
+		if (vtab_left) {
+			pad_l += config->titlebar_indicator;
+		} else {
+			pad_r += config->titlebar_indicator;
 		}
 	}
 
@@ -525,12 +538,17 @@ void container_arrange_title_bar(struct sway_container *con) {
 		if (con->title_bar.icon->width > 0) {
 			// Keep the icon clear of rounded corners on the left side.
 			int safe_x = tb_thickness + background_corner_radius;
-			int ix = MAX(config->titlebar_h_padding, safe_x);
+			int ix = MAX(pad_l, safe_x);
 			int iy = text_dy + (height - con->title_bar.icon->height) / 2;
 			wlr_scene_node_set_position(con->title_bar.icon->node, ix, iy);
 			icon_reserve = ix + con->title_bar.icon->width;
 		}
 	}
+
+	// where text starts: after the icon and the usual gap, or at the left
+	// padding when there's no icon
+	int text_left = icon_reserve > 0
+		? config->titlebar_h_padding + icon_reserve : pad_l;
 
 	if (con->title_bar.marks_text) {
 		struct sway_text_node *node = con->title_bar.marks_text;
@@ -538,15 +556,15 @@ void container_arrange_title_bar(struct sway_container *con) {
 
 		int h_padding;
 		if (title_align == ALIGN_RIGHT) {
-			h_padding = config->titlebar_h_padding + icon_reserve;
+			h_padding = text_left;
 		} else {
-			h_padding = width - config->titlebar_h_padding - marks_buffer_width;
+			h_padding = width - pad_r - marks_buffer_width;
 		}
 
-		h_padding = MAX(h_padding, config->titlebar_h_padding + icon_reserve);
+		h_padding = MAX(h_padding, text_left);
 
 		int alloc_width = MIN((int)node->width,
-			width - h_padding - config->titlebar_h_padding);
+			width - h_padding - pad_r);
 		alloc_width = MAX(alloc_width, 0);
 
 		sway_text_node_set_max_width(node, alloc_width);
@@ -567,18 +585,18 @@ void container_arrange_title_bar(struct sway_container *con) {
 
 		int h_padding;
 		if (title_align == ALIGN_RIGHT) {
-			h_padding = width - config->titlebar_h_padding - node->width;
+			h_padding = width - pad_r - node->width;
 		} else if (title_align == ALIGN_CENTER) {
 			int available = (int)width - icon_reserve - marks_buffer_width;
 			h_padding = icon_reserve + (available - (int)node->width) / 2;
 		} else {
-			h_padding = config->titlebar_h_padding + icon_reserve;
+			h_padding = text_left;
 		}
 
-		h_padding = MAX(h_padding, config->titlebar_h_padding + icon_reserve);
+		h_padding = MAX(h_padding, text_left);
 
 		int alloc_width = MIN((int) node->width,
-			width - h_padding - config->titlebar_h_padding);
+			width - h_padding - pad_r);
 		alloc_width = MAX(alloc_width, 0);
 
 		sway_text_node_set_max_width(node, alloc_width);
